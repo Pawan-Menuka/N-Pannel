@@ -71,7 +71,7 @@ it('preserves staff edits when reference and admin seeders run again', function 
     $location->update(['name' => 'Edited main location', 'is_default' => false, 'is_active' => false]);
     $category->update(['name' => $translations, 'is_active' => false]);
     $walkIn->update(['name' => 'Edited walk-in customer']);
-    $admin->update(['name' => 'Edited admin', 'role' => UserRole::Sales, 'is_active' => false]);
+    $admin->forceFill(['name' => 'Edited admin', 'role' => UserRole::Sales, 'is_active' => false])->save();
 
     $this->seed(DatabaseSeeder::class);
 

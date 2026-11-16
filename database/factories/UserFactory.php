@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Enums\UserRole;
 use App\Models\User;
+use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -44,5 +45,40 @@ class UserFactory extends Factory
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
         ]);
+    }
+
+    public function admin(): static
+    {
+        return $this->state(fn (): array => ['role' => UserRole::Admin]);
+    }
+
+    public function sales(): static
+    {
+        return $this->state(fn (): array => ['role' => UserRole::Sales]);
+    }
+
+    public function stock(): static
+    {
+        return $this->state(fn (): array => ['role' => UserRole::Stock]);
+    }
+
+    public function inactive(): static
+    {
+        return $this->state(fn (): array => ['is_active' => false]);
+    }
+
+    public function withAppAuthentication(): static
+    {
+        return $this->state(function (): array {
+            $provider = AppAuthentication::make();
+
+            return [
+                'app_authentication_secret' => $provider->generateSecret(),
+                'app_authentication_recovery_codes' => array_map(
+                    fn (string $code): string => Hash::make($code),
+                    $provider->generateRecoveryCodes(),
+                ),
+            ];
+        });
     }
 }

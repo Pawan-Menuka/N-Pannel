@@ -22,7 +22,7 @@ class AdminUserSeeder extends Seeder
             }
 
             $user->password = $password;
-            $user->fill([
+            $user->forceFill([
                 'name' => 'Admin',
                 'role' => UserRole::Admin,
                 'is_active' => true,
