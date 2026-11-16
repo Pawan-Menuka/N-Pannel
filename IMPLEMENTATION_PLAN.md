@@ -10,8 +10,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-1 | Data model | done (PR #2 merged) | `feature/is-1-data-model` | See IS-1 log |
 | IS-2 | Admin panel, roles, MFA, audit | done (PR #3 merged) | `feature/is-2-admin-panel` | See IS-2 log |
 | IS-3 | Products and CSV import | done (PR #4 merged) | `feature/is-3-products` | See IS-3 log |
-| IS-4 | Stock core | done locally; CI runs on the PR | `feature/is-4-stock` | See IS-4 log |
-| IS-5 | Suppliers and goods received | not started | | parallel with IS-6 |
+| IS-4 | Stock core | done (PR #5 merged) | `feature/is-4-stock` | See IS-4 log |
+| IS-5 | Suppliers and goods received | done locally; CI runs on the PR | `feature/is-5-purchasing` | See IS-5 log |
 | IS-6 | Customers | not started | | parallel with IS-5 |
 | IS-7 | Order core, payments | not started | | |
 | IS-8 | Counter sales | not started | | |
@@ -25,6 +25,70 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-5 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- **Domain** (pure PHP):
+  - `Domain/Contact/PhoneNumber::toE164()`: Sri Lankan default (`077…`, `77…`, `0094…`, `011-…` become `+94…`). IS-6 reuses it for customers.
+  - `Domain/Documents/DocumentNumber::format()`: `GRN-2026-00001`.
+  - `Domain/Purchasing/ReceiptTotals`: line and receipt totals, overflow-checked.
+- **`Actions/Documents/NextDocumentNumber`**, brought forward from IS-7. It gives one sequence per kind and per Asia/Colombo year. It must run inside the caller's transaction (`insertOrIgnore` and `lockForUpdate`), so a rollback gives the number back and leaves no gap. IS-7 and IS-11 reuse it for `RCP-`, `INV-` and `CRN-`.
+- **Actions** (`Actions/Purchasing`):
+  - **Suppliers:** `SaveSupplier` only touches the fields it is given. `DeleteSupplier` is refused once a supplier has receipts; deactivate it instead.
+  - **Drafts:**
+    - Create, update and delete a receipt.
+    - Save and delete lines. Only active, stock-tracked variants can be added, each variant once per receipt. Quantity is 1 to 1,000,000 and unit cost Rs 0 to Rs 100M. The total is recalculated in the same transaction.
+  - **`PostGoodsReceipt`:**
+    - Refused if the receipt has no lines, if the supplier is now inactive, or if any variant is now inactive or untracked.
+    - Assigns the GRN number and adds stock with reason `goods_received`.
+    - Stores the cost each line replaces (`goods_receipt_lines.previous_last_cost_cents`, migration `000011`), then sets `last_cost_cents`.
+  - **`VoidGoodsReceipt`:**
+    - Needs a reason. All shortages are checked under row locks before anything changes, and one message lists them ("SKU: received 50, in stock 20").
+    - Only admins can override, and only the lines that are actually short are flagged `is_override`.
+    - The number is kept.
+    - Last cost goes back to the latest other still-posted receipt, judged by real posting order (`stock_movements.id`, because `posted_at` is only accurate to the second). If there is none, it goes back to the cost stored on the line.
+  - **Locks:** receipt, then variants (`FOR NO KEY UPDATE`, ascending), then document sequence, then stock levels (ascending variant). This follows the IS-4 lock-ordering rule.
+- **Roles:**
+  - `GoodsReceipt` gains `post` and `void` (admin and stock) and `voidOverride` (admin only).
+  - Sales has no access to suppliers or receipts.
+  - Posted and void receipts can't be changed through the policy, the actions, the lines relation manager or the edit route (403).
+  - Saving an edit page left open after a colleague has posted or voided the receipt now shows a message instead of a 403. The same fix was applied to `EditStocktake`.
+- **Filament** (group Inventory):
+  - **Suppliers:** list, create, edit and view, with that supplier's receipts on the view page.
+  - **Goods received:**
+    - The list, a create page that opens the draft's edit page, a view page, and an edit page for drafts only.
+    - On a draft: post (the confirmation shows lines, units and cost) and delete. On a posted receipt: void, with a reason and the admin-only override checkbox.
+    - A lines relation manager with an SKU or name search, and unit cost pre-filled from the last cost.
+  - Stock history shows the GRN number as each movement's source.
+- `GoodsReceiptLine` now has the activity log.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 694/694 (3439 assertions), including two-connection Postgres locking tests.
+- Migration `000011` migrates, rolls back and re-migrates.
+- **Browser, on the dev database:**
+  - The supplier phone `077 123 4567` was stored as `+94771234567`.
+  - A draft with a line of 50 × Rs 2,400 showed a total of Rs 120,000.
+  - The post confirmation read "1 line, 50 units, Rs 120,000.00", and the receipt posted as **GRN-2026-00001**. GYP-9-2400 went from 40 to 90, its last cost became Rs 2,400, and the movement's source is the receipt.
+  - The posted receipt's edit route returned 403.
+  - The void, with a reason, put stock back to 40.
+  - This check also found the cost-restore bug below. It has been fixed and the test cost put back to Rs 2,500.
+
+**Fixed after the checks:**
+- **Found in the browser:**
+  - A void wiped a cost that hadn't come from a receipt (for example, from the import).
+  - The supplier was labelled "Name" on the receipt pages.
+- **Found by the review subagent:**
+  - A partial supplier update blanked the contact fields.
+  - When two receipts were posted in the same second, the cost restore could pick the wrong one.
+  - Saving an out-of-date edit page gave a 403.
+  - The override flag was set on lines that weren't short.
+  - Receipt lines had no activity log.
+  - An inactive supplier's draft could still be posted.
+  - The variant read when saving a line wasn't locked.
+
+**Dev data left by the check:** supplier #1 "Test Gypsum Supplier", and GRN-2026-00001 (void). The next GRN number this year will be 00002.
 
 ## IS-4 log
 

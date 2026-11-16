@@ -96,3 +96,13 @@ it('allows only active inventory staff to adjust stock', function (UserRole $rol
     expect($user->can('adjust', Models\StockLevel::class))
         ->toBe($active && in_array($role, [UserRole::Admin, UserRole::Stock], true));
 })->with([UserRole::Admin, UserRole::Sales, UserRole::Stock])->with([true, false]);
+
+it('limits receipt posting voiding and override abilities by role status and active flag', function (UserRole $role, bool $active, GoodsReceiptStatus $status) {
+    $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
+    $receipt = new Models\GoodsReceipt(['status' => $status]);
+    $inventory = $active && in_array($role, [UserRole::Admin, UserRole::Stock], true);
+
+    expect($user->can('post', $receipt))->toBe($inventory && $status === GoodsReceiptStatus::Draft);
+    expect($user->can('void', $receipt))->toBe($inventory && $status === GoodsReceiptStatus::Posted);
+    expect($user->can('voidOverride', $receipt))->toBe($active && $role === UserRole::Admin);
+})->with([UserRole::Admin, UserRole::Sales, UserRole::Stock])->with([true, false])->with(GoodsReceiptStatus::cases());

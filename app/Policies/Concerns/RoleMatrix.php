@@ -57,7 +57,7 @@ class RoleMatrix
         Models\Stocktake::class => self::Stock + ['draftOnly' => ['update', 'delete']],
         Models\StocktakeLine::class => self::Stock + ['draftOnly' => ['update', 'delete']],
         Models\Supplier::class => self::Stock,
-        Models\GoodsReceipt::class => self::Stock + ['draftOnly' => ['update', 'delete']],
+        Models\GoodsReceipt::class => self::Stock + ['post' => ['admin', 'stock'], 'void' => ['admin', 'stock'], 'voidOverride' => ['admin'], 'draftOnly' => ['update', 'delete', 'post']],
         Models\GoodsReceiptLine::class => self::Stock + ['draftOnly' => ['update', 'delete']],
         Models\Customer::class => self::Sales + ['delete' => ['admin']],
         Models\Order::class => self::Sales,

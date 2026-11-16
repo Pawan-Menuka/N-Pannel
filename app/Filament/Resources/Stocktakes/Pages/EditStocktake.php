@@ -8,6 +8,7 @@ use App\Actions\Stock\ImportStocktakeCounts;
 use App\Actions\Stock\PostStocktake;
 use App\Actions\Stock\PreviewStocktake;
 use App\Actions\Stock\UpdateStocktakeNote;
+use App\Enums\StocktakeStatus;
 use App\Filament\Resources\Stocktakes\StocktakeResource;
 use App\Models\Stocktake;
 use App\Models\User;
@@ -16,6 +17,7 @@ use Filament\Facades\Filament;
 use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Components\Attributes\Exposed;
 use Filament\Support\Components\Attributes\Unexposed;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Gate;
@@ -32,6 +34,22 @@ class EditStocktake extends EditRecord
     {
         Gate::forUser($this->actor())->authorize('create', Stocktake::class);
         Gate::forUser($this->actor())->authorize('view', $this->getRecord());
+    }
+
+    #[Exposed]
+    public function save(bool $shouldRedirect = true, bool $shouldSendSavedNotification = true): void
+    {
+        $record = $this->getRecord()->fresh();
+        abort_if($record === null, 404);
+        Gate::forUser($this->actor())->authorize('create', Stocktake::class);
+        Gate::forUser($this->actor())->authorize('view', $record);
+        if ($record->status !== StocktakeStatus::Draft) {
+            Notification::make()->danger()->title('This stocktake has been posted or cancelled and can no longer be edited.')->send();
+
+            return;
+        }
+
+        parent::save($shouldRedirect, $shouldSendSavedNotification);
     }
 
     /** @param array<string, mixed> $data */
