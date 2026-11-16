@@ -6,8 +6,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 
 | # | Phase | Status | Branch | Notes |
 |---|---|---|---|---|
-| IS-0 | Environment, scaffold, tooling, CI | done locally; CI runs on the PR | `feature/is-0-scaffold` | See IS-0 log |
-| IS-1 | Data model | not started | | |
+| IS-0 | Environment, scaffold, tooling, CI | done (PR #1 merged) | `feature/is-0-scaffold` | See IS-0 log |
+| IS-1 | Data model | done locally; CI runs on the PR | `feature/is-1-data-model` | See IS-1 log |
 | IS-2 | Admin panel, roles, MFA, audit | not started | | |
 | IS-3 | Products and CSV import | not started | | |
 | IS-4 | Stock core | not started | | |
@@ -25,6 +25,46 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-1 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- Migrations, in dependency order:
+  - users (staff columns)
+  - locations and districts
+  - catalog: categories, products, variants
+  - stock: levels, movements, stocktakes
+  - suppliers and goods receipts
+  - customers
+  - orders, lines, events, payments, quote snapshots
+  - documents: sequences, invoices, sales returns, credit notes
+- Package migrations: the settings and activity_log migrations switched to `jsonb` and given `down()`.
+- Enums: 20, each with a label. `DocumentKind::prefix()` gives INV / RCP / CRN / GRN.
+- Models: 24, with casts, relations, attribute defaults that match the database, translatable fields (District, Category, Product), and activity log with tokens and MFA secrets excluded.
+- Helpers: `Order::balanceCents()`, `Order::activeInvoice()`, `Variant::displayName()`, `Location::default()`, `Customer::walkIn()`.
+- Database rules:
+  - only one default location
+  - only one walk-in customer
+  - only one issued invoice per order
+  - `token_hash` unique, nulls allowed
+  - `stock_levels.qty` signed
+  - a category with products can't be deleted
+- Settings: Business, Tax (`vat_rate_bp`), Documents, Quotes and Bank.
+- Seeders, all idempotent (`firstOrCreate`): location, districts, categories (2 of 5 active) and the walk-in customer.
+  - **Admin:** from `config/seed.php`. Re-running never resets the password or re-activates the account.
+  - **Local sample catalog:** 4 products and 8 variants, with stock levels at 0 and no movements.
+
+**Checks:**
+- `migrate:reset` leaves only `migrations`.
+- `migrate --seed` followed by `db:seed` gives stable counts: 1 location, 25 districts, 2/5 categories active, 1 walk-in customer, 1 user, 8 variants.
+- `composer lint` passed. `composer analyse` found 0 errors. `composer test` passed: 103 tests, 338 assertions.
+
+**Review:** a subagent review found 8 defects and 2 weak tests. All were fixed in a second Codex round:
+- seeders overwrote values staff had changed
+- missing partial unique indexes
+- factories broke on a null customer and on quote revisions
+- `token_hash` had no index
+- the jsonb and constraint tests were too weak
 
 ## IS-0 log
 
