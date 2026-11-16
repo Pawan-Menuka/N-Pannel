@@ -74,11 +74,25 @@ it('uses the document or parent status for draft-only abilities', function (User
         expect($user->can('delete', $model))->toBe($canWrite && $status === 'draft');
     }
 
-    foreach ([$receipt, $receiptLine] as $model) {
+    foreach ([$receipt, $receiptLine, $stocktake, $stocktakeLine] as $model) {
         expect($user->can('update', $model))->toBe($canWrite && $status === 'draft');
     }
-
-    foreach ([$stocktake, $stocktakeLine] as $model) {
-        expect($user->can('update', $model))->toBe($canWrite);
-    }
 })->with([UserRole::Admin, UserRole::Sales, UserRole::Stock])->with([true, false])->with(['draft', 'posted']);
+
+it('denies changes to cancelled stocktakes and their lines', function () {
+    $user = Models\User::factory()->make(['role' => UserRole::Admin]);
+    $stocktake = new Models\Stocktake(['status' => StocktakeStatus::Cancelled]);
+    $line = (new Models\StocktakeLine)->setRelation('stocktake', $stocktake);
+
+    foreach ([$stocktake, $line] as $model) {
+        expect($user->can('update', $model))->toBeFalse();
+        expect($user->can('delete', $model))->toBeFalse();
+    }
+});
+
+it('allows only active inventory staff to adjust stock', function (UserRole $role, bool $active) {
+    $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
+
+    expect($user->can('adjust', Models\StockLevel::class))
+        ->toBe($active && in_array($role, [UserRole::Admin, UserRole::Stock], true));
+})->with([UserRole::Admin, UserRole::Sales, UserRole::Stock])->with([true, false]);

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/** @property int|null $counted_qty */
 #[Fillable(['stocktake_id', 'variant_id', 'expected_qty', 'counted_qty'])]
 class StocktakeLine extends Model
 {
