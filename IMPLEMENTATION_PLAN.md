@@ -9,8 +9,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-0 | Environment, scaffold, tooling, CI | done (PR #1 merged) | `feature/is-0-scaffold` | See IS-0 log |
 | IS-1 | Data model | done (PR #2 merged) | `feature/is-1-data-model` | See IS-1 log |
 | IS-2 | Admin panel, roles, MFA, audit | done (PR #3 merged) | `feature/is-2-admin-panel` | See IS-2 log |
-| IS-3 | Products and CSV import | done locally; CI runs on the PR | `feature/is-3-products` | See IS-3 log |
-| IS-4 | Stock core | not started | | |
+| IS-3 | Products and CSV import | done (PR #4 merged) | `feature/is-3-products` | See IS-3 log |
+| IS-4 | Stock core | done locally; CI runs on the PR | `feature/is-4-stock` | See IS-4 log |
 | IS-5 | Suppliers and goods received | not started | | parallel with IS-6 |
 | IS-6 | Customers | not started | | parallel with IS-5 |
 | IS-7 | Order core, payments | not started | | |
@@ -25,6 +25,64 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-4 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- **Domain** (`app/Domain/Stock`, pure PHP):
+  - `InsufficientStock` and `StockLimitExceeded`
+  - `StockLevelStatus`: low means qty ≤ reorder level; out means qty ≤ 0
+  - `StocktakeVariance` and `StocktakeImportReport`
+- **Ledger** (`app/Actions/Stock/StockLedger`): the only code that writes `stock_levels`, and every change writes one `stock_movements` row.
+  - It must run inside a transaction.
+  - Level rows are created lazily with `insertOrIgnore`.
+  - Increments are atomic, and guarded so a quantity never passes the 32-bit maximum.
+  - Decrements are conditional (`where qty >= n`). An override is allowed only with a non-blank reason and is flagged `is_override`.
+  - `qty_after` is read under the row lock.
+- **Actions:**
+  - `AdjustStock` (admin and stock roles, with the new `adjust` ability on `StockLevel`): a reason is required, it can't go below zero, and untracked items are refused.
+  - `ReserveStock` and `ReleaseStock`, for IS-7 to IS-12: quantity 1 to 1,000,000. Untracked items are a no-op that returns null. A shortage throws `InsufficientStock` unless an override reason is given.
+  - Stocktakes: `CreateStocktake`, `SaveStocktakeLine`, `AddAllTrackedItems`, `ImportStocktakeCounts`, `PostStocktake`, `CancelStocktake`, `LockDraftStocktake`, `UpdateStocktakeNote`, `PreviewStocktake` and `DeleteStocktakeLine`.
+- **Stocktake rules:**
+  - A stocktake is a draft until it is posted or cancelled.
+  - "Add all tracked items" creates lines marked **not counted** (`counted_qty` is null; migration `000010`).
+  - Posting sets `expected_qty` to the stock at the moment of posting, and writes a `stocktake` movement for each counted line whose figure differs.
+  - Uncounted and untracked lines are skipped and never create level rows.
+  - Posted and cancelled stocktakes can't be changed through any path: the policy (`update` is now draft-only for `Stocktake` and `StocktakeLine`), the actions (status is checked before the Gate, so a colleague's earlier post gives a message, not a 403), the relation-manager actions (re-checked on the parent), and the edit route (403).
+- **Opening stock = a stocktake.** Either import counts from a CSV (`sku,counted_qty`; all-or-nothing, with line numbers) or enter counts against "Add all tracked items", then post.
+- **Filament** (group Inventory):
+  - **Stock:** tracked variants with quantity at Main, reorder level and last movement.
+    - Filters for low stock, out of stock and active.
+    - A low-stock badge on the menu item.
+    - Adjust and history actions, plus a view page listing movements.
+  - **Stocktakes:**
+    - A list, and create, edit and view pages.
+    - Header actions: add all, import counts, post (the confirmation says how many lines will change stock and how many are uncounted), and cancel.
+    - A lines relation manager showing "In stock now", the difference, and a "Not counted" filter.
+- **Lock-ordering rule** (documented in `StockLedger`): any code that changes stock on several rows must lock `stock_levels` in ascending `variant_id` order. IS-5, IS-8 and IS-9 must follow this rule.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: all tests pass, with 107 in the stock suite.
+- Migration `000010` migrates, rolls back and re-migrates cleanly.
+- Browser, on the dev database:
+  - The stock list loads.
+  - Adjusting by +25 gave "Stock adjusted to 25" and a matching movement in the history.
+  - A stocktake with "add all" plus one count (GYP-9-2400 at 40) gave the confirmation "1 line will change stock, 7 not counted". After posting, GYP-9-2400 was 40 and the uncounted TEE-3000 stayed at 25.
+  - The posted stocktake's edit route returned 403.
+
+**Review findings (Claude subagent), all fixed:**
+- **Add-all pre-filled counts**, so posting reversed sales made since then. Lines now start as not counted.
+- **403 instead of a message** when a stocktake was already posted.
+- **32-bit overflow gave a 500.**
+- **Untracked lines created level rows.**
+- **Smaller fixes:**
+  - import errors at commit time were hidden
+  - uploaded files were left behind on failure
+  - a header-only CSV was accepted
+  - "1 lines" in the post confirmation
+
+**Design note:** a count is compared with stock *at posting time*. A sale made between counting an item and posting the stocktake still shows up as a difference. Staff should post soon after counting. A count-time snapshot can be added later if this causes trouble.
 
 ## IS-3 log
 
