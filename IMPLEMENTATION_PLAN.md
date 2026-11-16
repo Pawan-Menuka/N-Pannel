@@ -8,8 +8,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 |---|---|---|---|---|
 | IS-0 | Environment, scaffold, tooling, CI | done (PR #1 merged) | `feature/is-0-scaffold` | See IS-0 log |
 | IS-1 | Data model | done (PR #2 merged) | `feature/is-1-data-model` | See IS-1 log |
-| IS-2 | Admin panel, roles, MFA, audit | done locally; CI runs on the PR | `feature/is-2-admin-panel` | See IS-2 log |
-| IS-3 | Products and CSV import | not started | | |
+| IS-2 | Admin panel, roles, MFA, audit | done (PR #3 merged) | `feature/is-2-admin-panel` | See IS-2 log |
+| IS-3 | Products and CSV import | done locally; CI runs on the PR | `feature/is-3-products` | See IS-3 log |
 | IS-4 | Stock core | not started | | |
 | IS-5 | Suppliers and goods received | not started | | parallel with IS-6 |
 | IS-6 | Customers | not started | | parallel with IS-5 |
@@ -25,6 +25,62 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-3 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- **Pure domain helpers:**
+  - `Domain\Money\Lkr`: string-only rupee parsing to cents, accepting "Rs.1,250" and rejecting "12,50", ".5" and ">2 decimals"; formatting as "1,250.50".
+  - `Domain\Catalog\Measure`: mm/microns, feet-inches to 1/4", ft² and price per ft², all integer-only.
+  - `Prices` and `CatalogFormat`: slug/SKU rules and reversible CSV formula escaping.
+- **Filament support pieces:**
+  - `TranslatableFields`: English, Sinhala and Tamil tabs. English is required, and saving one language never wipes the others.
+  - `MoneyInput`: an "Rs" field that saves integer cents.
+- **Resources** (Inventory group, permissions from the IS-2 matrix):
+  - **Categories:**
+    - slug format `^[a-z0-9]+(?:-[a-z0-9]+)*$`
+    - the parent picker excludes descendants, and the save path also checks for loops
+    - delete is refused while the category has products or children
+  - **Products** with a variants relation manager:
+    - SKU is trimmed, uppercased, follows `^[A-Z0-9][A-Z0-9._/-]*$`, and is unique ignoring case (unique index on `upper(sku)`, migration 000009)
+    - trade price can't exceed price, and price must be above 0
+    - feet-inches, ft² and price/ft² are shown read-only
+  - **Delete guards:** a product or variant with stock movements, order lines, goods-receipt lines or stocktake lines can't be deleted. Deleting a product deletes its variants through Eloquent first, so each one is logged.
+- **CSV import/export:**
+  - **Format:** one row per variant, columns in the IS-3 spec.
+  - `ImportProducts` always dry-runs first. It writes only when there are no errors, in one transaction, and upserts by slug and SKU (case-insensitive). It never deletes and never touches stock.
+  - **File handling:** streaming reader, limit of 5,000 rows, BOM stripped before parsing, blank rows skipped, errors reported by physical line number.
+  - **Columns missing from the header are left untouched** on existing rows.
+  - **Warnings:** missing Sinhala or Tamil title, missing weight, and "??" in Sinhala/Tamil text (the file was probably re-saved as plain CSV).
+  - **Export:** has a UTF-8 BOM and escapes formula cells (`'`), reversibly. Export then import is a no-op.
+- **Import page:**
+  - "Download template", "Export catalog", "Check file" and "Import".
+  - "Import" works only after a clean check of the same file contents (hash).
+  - The file is deleted after commit. `catalog:prune-imports` runs daily and removes anything older than a day.
+
+**Checks:**
+- `composer lint` passed. `composer analyse` found 0 errors. `composer test` passed: 443 tests, 2269 assertions, at the default 128 MB PHP limit. `phpunit.xml` also sets 512M.
+- Migration 000009 migrates, rolls back and re-migrates cleanly.
+- In a browser: the products list, the product edit page with the variants table (3000×200 mm shows 9' 10" × 0' 7 3/4", price/ft² Rs 193.55), and the import page all work, with no console errors.
+- On the real local database: export then commit-import gave 4 products and 8 variants, all unchanged, and no stock rows. The template dry run was clean.
+
+**Review:** a subagent review found 4 must-fixes and 9 smaller items. All were fixed in Codex rounds 3 and 4:
+- a partial-column CSV wiped data
+- formula injection in the export
+- no BOM, so Sinhala/Tamil was garbled
+- no slug/SKU format check
+- SKU uniqueness depended on letter case
+- BOM followed by a quoted header failed
+- blank rows counted as rows
+- line numbers drifted after multi-line cells
+- "0" became null
+- no 255-character limits
+- uploaded files were never pruned
+- deleting a product skipped the variants' activity log
+- the category parent picker allowed loops
+
+**Carried forward:**
+- **IS-4:** the plan had the CSV import loading opening stock. No stock is written before the stock ledger exists, so opening quantities go in with IS-4 (an opening-stock import, or a stocktake).
 
 ## IS-2 log
 
