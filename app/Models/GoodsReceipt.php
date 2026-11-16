@@ -12,6 +12,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
+/**
+ * @property GoodsReceiptStatus $status
+ */
 #[Fillable(['number', 'supplier_id', 'location_id', 'status', 'supplier_reference', 'received_on', 'note', 'total_cost_cents', 'created_by_id', 'posted_by_id', 'voided_by_id', 'posted_at', 'voided_at', 'void_reason'])]
 class GoodsReceipt extends Model
 {

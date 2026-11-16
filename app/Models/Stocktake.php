@@ -10,6 +10,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property StocktakeStatus $status
+ */
 #[Fillable(['location_id', 'status', 'note', 'created_by_id', 'posted_by_id', 'posted_at'])]
 class Stocktake extends Model
 {

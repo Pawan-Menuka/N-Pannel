@@ -7,8 +7,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | # | Phase | Status | Branch | Notes |
 |---|---|---|---|---|
 | IS-0 | Environment, scaffold, tooling, CI | done (PR #1 merged) | `feature/is-0-scaffold` | See IS-0 log |
-| IS-1 | Data model | done locally; CI runs on the PR | `feature/is-1-data-model` | See IS-1 log |
-| IS-2 | Admin panel, roles, MFA, audit | not started | | |
+| IS-1 | Data model | done (PR #2 merged) | `feature/is-1-data-model` | See IS-1 log |
+| IS-2 | Admin panel, roles, MFA, audit | done locally; CI runs on the PR | `feature/is-2-admin-panel` | See IS-2 log |
 | IS-3 | Products and CSV import | not started | | |
 | IS-4 | Stock core | not started | | |
 | IS-5 | Suppliers and goods received | not started | | parallel with IS-6 |
@@ -25,6 +25,46 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-2 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- **Filament panel** at `/admin`, named "N-Pannel":
+  - sign-in, password reset, and a profile page where email is read-only (admins manage emails)
+  - **required authenticator-app sign-in with recovery codes**
+  - the profile can't disable two-factor while it's required
+  - `RequireMultiFactorAuthentication` is persistent middleware, so Livewire update requests from an already-open tab are checked too. Filament itself checks only page routes: vendor `HasRoutes.php:100`.
+- **Roles:** `admin`, `sales` and `stock`. One matrix (`app/Policies/Concerns/RoleMatrix.php`) feeds a thin policy for every model and for the activity log.
+  - No `Gate::before`, so even an admin can't delete payments, invoices, orders or stock movements.
+  - Draft-only rules apply to goods receipts and stocktakes.
+  - Inactive users can do nothing.
+- **Users** (admin only):
+  - Creating a user sends the panel's password-reset link. There is no password field.
+  - Row actions: send reset link (refused for inactive users), and "Reset two-factor", which clears the secret, deletes the user's sessions and rotates `remember_token`.
+  - `UpdateStaffMember`: an admin can't change their own role or deactivate themselves, and the last active admin is protected. The actor is re-checked after the row lock.
+  - `role`, `is_active` and the MFA columns aren't mass-assignable. The actions use `forceFill`.
+- **Activity log** (admin only): read-only list with filters (subject type, causer, date range), plus a view showing old and new values. Seeding doesn't log: `DatabaseSeeder` uses `WithoutModelEvents`.
+
+**Checks:**
+- `composer lint` passed. `composer analyse` found 0 errors. `composer test` passed: 259 tests, 1366 assertions.
+- In a browser on local:
+  - a guest is sent to sign-in
+  - the seeded admin signs in and is forced to two-factor setup
+  - `/admin/users` sends them back to setup until enrolment is done
+  - enrolment worked, with recovery codes shown
+  - the Users, Activity Log and Profile pages work
+  - Livewire updates return 200 with no console errors
+
+**Review:** a subagent security review found 2 must-fixes and 7 smaller items. All were fixed in Codex rounds 3 and 4:
+- the "Reset two-factor" session takeover
+- Livewire requests skipping the two-factor check
+- the concurrent-demotion re-check
+- the silent "sent" for inactive users
+- mass assignment of roles and two-factor columns
+- self-edit fields, the profile email, and test gaps
+
+**Carried forward:**
+- **IS-4 / IS-5:** the role matrix can't stop someone adding a *line* to a posted goods receipt or stocktake, because `create` has no record to check. The relation managers must check `update` on the parent before creating a line.
 
 ## IS-1 log
 

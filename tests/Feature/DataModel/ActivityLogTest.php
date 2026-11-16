@@ -26,7 +26,7 @@ it('logs only changed product attributes and skips unchanged saves', function ()
 it('keeps user credentials out of activity logs and serialization', function () {
     $user = User::factory()->create([
         'app_authentication_secret' => 'private-secret',
-        'app_authentication_recovery_codes' => 'private-recovery',
+        'app_authentication_recovery_codes' => ['private-recovery'],
     ]);
     $count = Activity::forSubject($user)->count();
     $excluded = ['password', 'remember_token', 'app_authentication_secret', 'app_authentication_recovery_codes'];
@@ -37,11 +37,11 @@ it('keeps user credentials out of activity logs and serialization', function () 
         expect($user->toArray())->not->toHaveKey($attribute);
     }
 
-    $user->update([
+    $user->forceFill([
         'password' => 'replacement-password',
         'app_authentication_secret' => 'replacement-secret',
-        'app_authentication_recovery_codes' => 'replacement-recovery',
-    ]);
+        'app_authentication_recovery_codes' => ['replacement-recovery'],
+    ])->save();
 
     expect(Activity::forSubject($user)->count())->toBe($count);
 });
