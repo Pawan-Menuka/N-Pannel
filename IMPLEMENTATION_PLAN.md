@@ -11,8 +11,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-2 | Admin panel, roles, MFA, audit | done (PR #3 merged) | `feature/is-2-admin-panel` | See IS-2 log |
 | IS-3 | Products and CSV import | done (PR #4 merged) | `feature/is-3-products` | See IS-3 log |
 | IS-4 | Stock core | done (PR #5 merged) | `feature/is-4-stock` | See IS-4 log |
-| IS-5 | Suppliers and goods received | done locally; CI runs on the PR | `feature/is-5-purchasing` | See IS-5 log |
-| IS-6 | Customers | not started | | parallel with IS-5 |
+| IS-5 | Suppliers and goods received | done (PR #6 merged) | `feature/is-5-purchasing` | See IS-5 log |
+| IS-6 | Customers | done locally; CI runs on the PR | `feature/is-6-customers` | See IS-6 log |
 | IS-7 | Order core, payments | not started | | |
 | IS-8 | Counter sales | not started | | |
 | IS-9 | Quotes | not started | | |
@@ -25,6 +25,68 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-6 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- **`Actions/Customers/ResolveCustomer`** is the only way a customer is found or created by phone, as blueprint 5.1 requires.
+  - **Phone numbers:** normalised with `Domain/Contact/PhoneNumber` from IS-5. The lookup locks the row, and a new number is created with `createOrFirst`, which uses a savepoint, so two staff entering the same number can't create a duplicate.
+  - **Merged records:** a merge chain is followed to the surviving customer. If that customer has been anonymised, the stale phone is removed from the chain and a fresh customer is created.
+  - **Names:** a known number never changes the customer's name. A different name is added to the notes once per name ("Also gave the name … on …"), and never if it would push the notes past 2,000 characters.
+  - **Customers without a phone:** staff can create these, as the blueprint allows.
+  - **`walkIn()`:** returns the single shared walk-in customer, which the partial unique index guarantees.
+- **`UpdateCustomer`:**
+  - Only the fields given are changed. Changing the name sets `name_edited_by_staff`.
+  - A duplicate phone gives "That number already belongs to <name>", naming the surviving customer when the holder has been merged.
+  - Protected fields (`is_walk_in`, `merged_into_id`, `anonymised_at`, `name_edited_by_staff`) can't be set from any form or action. The fields allowed are listed in `CustomerData`.
+- **`DeleteCustomer`:** admin only. It is refused for the walk-in customer, a customer with orders or invoices, or a customer that other records are merged into, because the foreign key would un-merge them.
+- **Balance owed:**
+  - `Domain/Customers/Balance` defines the counted statuses (`confirmed`, `processing`, `ready_for_collection`, `dispatched`, `completed`) and floors each order at 0.
+  - `Customer::balanceCents()` gives one customer's balance.
+  - The `withBalance()` subquery lets the list show and sort balances without one query per row. The `owingMoney()` scope uses EXISTS.
+- **`SearchCustomers`:**
+  - Searches by name, company and phone.
+  - A full number in any format matches exactly.
+  - A partial number that looks like a phone number ("0775", "077 555", "+94 77") is matched against the digits after +94.
+  - Text containing digits (for example "Lanka Ceilings 2000") does not match phone numbers.
+  - LIKE wildcards are escaped.
+- **Roles:**
+  - Admin and sales can use the Customers pages. Stock staff have no access. Only an admin can delete.
+  - `RoleMatrix` refuses update and delete for walk-in, merged and anonymised customers.
+- **Filament: Customers** (group Sales):
+  - **List:**
+    - Shows the walk-in badge and balance owed (sortable), with filters for type, price tier and "Owes money".
+    - Merged customers are hidden, and anonymised ones show as "Removed customer".
+  - **"Find or add by phone"** (header action): opens the existing customer or adds a new one.
+  - **Create page:** goes through `ResolveCustomer`. A number that already exists opens that customer with "Already a customer" and doesn't create a duplicate.
+  - **View page:** details and balance owed, with read-only orders and payments panels (`Customer::payments()` is a has-many-through).
+  - **Edit page:** refused (403) for the walk-in customer.
+- The reusable customer picker for the New sale screen is deferred to IS-8, where it is first used.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 755/755 (3707 assertions).
+- No new migrations.
+- **Browser, on the dev database:**
+  - Find or add with `077 555 0101` created customer #2 with phone `+94775550101`.
+  - New customer with `+94 77 555 0101` and the name "Nimal Perera" opened customer #2 instead of creating a duplicate, and added the alias note.
+  - Searching `0775550101` and `077 555` both found the customer.
+  - The walk-in customer's edit page returned 403.
+
+**Fixed after the checks:**
+- **Larastan:** the "Owes money" filter is now a typed scope and a named method.
+- **Found in the browser:**
+  - A partial local-number search found nothing.
+  - An empty "Customer" field appeared on the view page.
+- **Found by the review subagent:**
+  - The alias note grew daily until the customer could no longer be edited.
+  - Deleting a merge survivor un-merged its records.
+  - Searches containing digits matched phone numbers.
+  - A merge chain ending at an anonymised customer wrote personal data into it.
+  - The duplicate-phone message could name a merged customer.
+  - No test covered `ResolveCustomer`'s own concurrent-create path. One now does.
+
+**Dev data left by the check:** customer #2, "Test Customer Perera" (`+94775550101`), with the note "Also gave the name "Nimal Perera" on 2026-11-17."
 
 ## IS-5 log
 

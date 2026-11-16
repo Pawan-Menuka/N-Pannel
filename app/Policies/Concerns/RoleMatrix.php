@@ -87,6 +87,11 @@ class RoleMatrix
             return false;
         }
 
+        if ($record instanceof Models\Customer && in_array($ability, ['update', 'delete'], true)
+            && ($record->is_walk_in || $record->merged_into_id !== null || $record->anonymised_at !== null)) {
+            return false;
+        }
+
         if (! in_array($ability, $permissions['draftOnly'] ?? [], true)) {
             return true;
         }
