@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Actions\Catalog\CategoryHierarchy;
 use Database\Factories\CategoryFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -34,6 +35,15 @@ class Category extends Model
             'is_active' => 'boolean',
             'sort_order' => 'integer',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Category $category): void {
+            if (! $category->exists || $category->isDirty('parent_id')) {
+                app(CategoryHierarchy::class)->ensureParent($category, $category->parent_id === null ? null : (int) $category->parent_id);
+            }
+        });
     }
 
     /** @return BelongsTo<Category, $this> */

@@ -13,6 +13,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
+/**
+ * @property SaleUnit $sale_unit
+ * @property StockStatus $stock_status
+ */
 #[Fillable(['product_id', 'sku', 'label', 'colour', 'length_mm', 'width_mm', 'thickness_micron', 'weight_grams', 'sale_unit', 'pieces_per_unit', 'price_cents', 'trade_price_cents', 'last_cost_cents', 'track_stock', 'reorder_level', 'stock_status', 'is_active', 'sort_order'])]
 class Variant extends Model
 {
