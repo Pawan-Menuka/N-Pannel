@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Stock\RelationManagers;
 
+use App\Models\GoodsReceipt;
 use App\Models\StockMovement;
 use App\Models\Stocktake;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -33,6 +34,10 @@ class MovementsRelationManager extends RelationManager
                 TextColumn::make('source_label')->label('Source')->state(function (StockMovement $record): string {
                     if ($record->source_type === null || $record->source_id === null) {
                         return '—';
+                    }
+
+                    if ($record->source instanceof GoodsReceipt) {
+                        return $record->source->number ?? 'Draft';
                     }
 
                     return ($record->source instanceof Stocktake ? 'Stocktake' : class_basename($record->source ?? $record->source_type)).' #'.$record->source_id;

@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Stock\CancelStocktake;
+use App\Actions\Stock\PostStocktake;
 use App\Enums\StocktakeStatus;
 use App\Filament\Resources\Stocktakes\Pages\CreateStocktake;
 use App\Filament\Resources\Stocktakes\Pages\EditStocktake;
@@ -260,3 +262,23 @@ it('previews changed and uncounted lines in the post confirmation', function () 
     $page = Livewire::test(EditStocktake::class, ['record' => $stocktake->id])->mountAction('post');
     expect($page->instance()->getMountedAction()->getModalDescription())->toBe('1 line will change stock, 1 not counted (skipped)');
 });
+
+it('notifies instead of saving from an open edit page after a colleague posts or cancels the stocktake', function (bool $cancel) {
+    $stocktake = Stocktake::factory()->create(['note' => 'Original note']);
+    StocktakeLine::factory()->create(['stocktake_id' => $stocktake->id, 'counted_qty' => 4]);
+    $page = Livewire::test(EditStocktake::class, ['record' => $stocktake->id])->fillForm(['note' => 'Unsaved changes']);
+    /** @var User $actor */
+    $actor = auth()->user();
+    if ($cancel) {
+        app(CancelStocktake::class)->handle($stocktake, $actor);
+    } else {
+        app(PostStocktake::class)->handle($stocktake, $actor);
+    }
+    $before = $stocktake->fresh()->getAttributes();
+    $movementCount = StockMovement::count();
+
+    $page->call('save')->assertNotified('This stocktake has been posted or cancelled and can no longer be edited.');
+
+    expect($stocktake->fresh()->getAttributes())->toBe($before);
+    expect(StockMovement::count())->toBe($movementCount);
+})->with([false, true]);
