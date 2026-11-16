@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Customers\Balance;
 use App\Enums\CustomerType;
 use App\Enums\PriceTier;
 use Database\Factories\CustomerFactory;
@@ -12,6 +13,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
@@ -38,6 +40,7 @@ class Customer extends Model
     protected function casts(): array
     {
         return [
+            'balance_cents' => 'integer',
             'name_edited_by_staff' => 'boolean',
             'type' => CustomerType::class,
             'price_tier' => PriceTier::class,
@@ -81,6 +84,48 @@ class Customer extends Model
     public function invoices(): HasMany
     {
         return $this->hasMany(Invoice::class);
+    }
+
+    /** @return HasManyThrough<Payment, Order, $this> */
+    public function payments(): HasManyThrough
+    {
+        return $this->hasManyThrough(Payment::class, Order::class);
+    }
+
+    public function balanceCents(): int
+    {
+        return (int) $this->orders()->whereIn('status', Balance::statuses())
+            ->selectRaw('COALESCE(SUM(GREATEST(total_cents - paid_cents, 0)), 0) AS balance')->value('balance');
+    }
+
+    /**
+     * @param  Builder<Customer>  $query
+     * @return Builder<Customer>
+     */
+    #[Scope]
+    protected function withBalance(Builder $query): Builder
+    {
+        return $query->addSelect(['balance_cents' => self::balanceQuery()]);
+    }
+
+    /**
+     * @param  Builder<Customer>  $query
+     * @return Builder<Customer>
+     */
+    #[Scope]
+    protected function owingMoney(Builder $query): Builder
+    {
+        return $query->whereHas('orders', fn (Builder $orders): Builder => $orders
+            ->whereIn('status', Balance::statuses())
+            ->whereColumn('total_cents', '>', 'paid_cents'));
+    }
+
+    /** @return Builder<Order> */
+    public static function balanceQuery(): Builder
+    {
+        return Order::query()->whereColumn('orders.customer_id', 'customers.id')
+            ->whereIn('status', Balance::statuses())
+            ->selectRaw('COALESCE(SUM(GREATEST(total_cents - paid_cents, 0)), 0)');
     }
 
     /** @return BelongsTo<Customer, $this> */
