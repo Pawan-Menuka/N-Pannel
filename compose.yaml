@@ -1,0 +1,21 @@
+services:
+  pgsql:
+    image: postgres:17
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: npannel
+      POSTGRES_PASSWORD: npannel
+      POSTGRES_DB: npannel
+    volumes:
+      - pgsql-data:/var/lib/postgresql/data
+      - ./docker/pgsql/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U npannel -d npannel"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  pgsql-data:
