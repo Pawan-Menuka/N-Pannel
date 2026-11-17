@@ -60,7 +60,7 @@ class RoleMatrix
         Models\GoodsReceipt::class => self::Stock + ['post' => ['admin', 'stock'], 'void' => ['admin', 'stock'], 'voidOverride' => ['admin'], 'draftOnly' => ['update', 'delete', 'post']],
         Models\GoodsReceiptLine::class => self::Stock + ['draftOnly' => ['update', 'delete']],
         Models\Customer::class => self::Sales + ['delete' => ['admin']],
-        Models\Order::class => self::Sales,
+        Models\Order::class => self::Sales + ['overrideStock' => ['admin', 'sales']],
         Models\OrderLine::class => self::Sales,
         Models\QuoteSnapshot::class => self::SalesReadOnly,
         Models\OrderEvent::class => self::SalesReadOnly,
