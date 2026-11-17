@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
@@ -17,6 +18,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property PaymentKind $kind
  * @property PaymentMethod $method
  * @property PaymentStatus $status
+ * @property Carbon|null $confirmed_at
  */
 #[Fillable(['order_id', 'kind', 'method', 'status', 'amount_cents', 'reference', 'receipt_number', 'note', 'created_by_id', 'confirmed_by_id', 'confirmed_at', 'sales_return_id'])]
 class Payment extends Model

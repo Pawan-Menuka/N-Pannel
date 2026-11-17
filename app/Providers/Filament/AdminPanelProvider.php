@@ -4,7 +4,9 @@ namespace App\Providers\Filament;
 
 use App\Filament\Auth\EditProfile;
 use App\Filament\Auth\RequiredAppAuthentication;
+use App\Http\Controllers\AdminInvoiceDocumentController;
 use App\Http\Controllers\AdminQuoteDocumentController;
+use App\Http\Controllers\AdminReceiptDocumentController;
 use App\Http\Middleware\RequireMultiFactorAuthentication;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -32,6 +34,8 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->authenticatedRoutes(function (): void {
+                Route::get('invoices/{invoice}/print', AdminInvoiceDocumentController::class)->name('invoices.print');
+                Route::get('payments/{payment}/receipt', AdminReceiptDocumentController::class)->name('payments.receipt');
                 Route::get('orders/{order}/quotes/{revision}/print', AdminQuoteDocumentController::class)
                     ->whereNumber('revision')->name('quotes.print');
             })
@@ -42,7 +46,7 @@ class AdminPanelProvider extends PanelProvider
             ->multiFactorAuthentication([
                 RequiredAppAuthentication::make()->recoverable(),
             ], isRequired: true)
-            ->navigationGroups(['Sales', 'Inventory', 'Administration'])
+            ->navigationGroups(['Sales', 'Inventory', 'Administration', 'Settings'])
             ->colors([
                 'primary' => Color::Amber,
             ])
