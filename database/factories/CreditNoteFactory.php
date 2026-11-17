@@ -23,7 +23,7 @@ class CreditNoteFactory extends Factory
             'number' => fake()->unique()->numerify('CRN-2026-#####'),
             'status' => DocumentStatus::Issued,
             'customer_snapshot' => fn (array $attributes) => Invoice::findOrFail($attributes['invoice_id'])->customer_snapshot,
-            'lines' => [['description' => 'Returned PVC ceiling panel', 'qty' => 1, 'unit_price_cents' => 125000, 'line_total_cents' => 125000]],
+            'lines' => [['sku' => null, 'description' => 'Returned PVC ceiling panel', 'sale_unit' => 'panel', 'qty' => 1, 'unit_price_cents' => 125000, 'line_total_cents' => 125000]],
             'total_cents' => 125000,
             'issued_on' => now()->toDateString(),
             'issued_by_id' => User::factory(),

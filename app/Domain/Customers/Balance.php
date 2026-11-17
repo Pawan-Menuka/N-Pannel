@@ -4,9 +4,9 @@ namespace App\Domain\Customers;
 
 final class Balance
 {
-    public static function owed(int $totalCents, int $paidCents): int
+    public static function owed(int $totalCents, int $paidCents, int $returnedCents = 0): int
     {
-        return max(0, $totalCents - $paidCents);
+        return max(0, $totalCents - $returnedCents - $paidCents);
     }
 
     /** @return list<string> */

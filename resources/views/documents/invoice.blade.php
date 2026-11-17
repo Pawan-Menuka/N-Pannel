@@ -36,8 +36,22 @@
         <tr><th>Delivery</th><td class="number">{{ $document->delivery }}</td></tr>
         <tr><th>Discount</th><td class="number">{{ $document->discount }}</td></tr>
         <tr><th>Total</th><td class="number"><strong>{{ $document->total }}</strong></td></tr>
+        @if ($document->returned)<tr><th>Returned</th><td class="number">{{ $document->returned }}</td></tr>@endif
     </table>
     @if ($document->vatLine)<p>{{ $document->vatLine }}</p>@endif
+    @if ($document->creditNotes !== [])
+        <section>
+            <h2>Credit notes</h2>
+            <table>
+                <thead><tr><th>Number</th><th>Date</th><th class="number">Amount</th></tr></thead>
+                <tbody>
+                @foreach ($document->creditNotes as $credit)
+                    <tr><td>{{ $credit['number'] }}</td><td>{{ $credit['date'] }}</td><td class="number">{{ $credit['amount'] }}</td></tr>
+                @endforeach
+                </tbody>
+            </table>
+        </section>
+    @endif
     <section>
         <h2>Payments</h2>
         <table>

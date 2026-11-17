@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\PaymentKind;
 use Database\Factories\SalesReturnFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use LogicException;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
@@ -19,6 +21,29 @@ class SalesReturn extends Model
     use HasFactory;
 
     use LogsActivity;
+
+    /** @var array<class-string<Model>> */
+    protected static $ignoreOnTouch = [self::class];
+
+    /** @param array<string>|string|null $attribute */
+    public function touch(mixed $attribute = null): bool
+    {
+        if ($this->exists) {
+            throw new LogicException('Returns cannot be changed.');
+        }
+
+        return parent::touch($attribute);
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (SalesReturn $record): void {
+            throw new LogicException('Returns cannot be changed.');
+        });
+        static::deleting(function (SalesReturn $record): void {
+            throw new LogicException('Returns cannot be deleted.');
+        });
+    }
 
     /** @var array<string, mixed> */
     protected $attributes = [
@@ -66,6 +91,12 @@ class SalesReturn extends Model
     public function creditNote(): HasOne
     {
         return $this->hasOne(CreditNote::class);
+    }
+
+    /** @return HasOne<Payment, $this> */
+    public function refund(): HasOne
+    {
+        return $this->hasOne(Payment::class)->where('kind', PaymentKind::Refund);
     }
 
     /** @return BelongsTo<User, $this> */

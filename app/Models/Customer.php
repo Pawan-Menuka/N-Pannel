@@ -99,7 +99,7 @@ class Customer extends Model
     public function balanceCents(): int
     {
         return (int) $this->orders()->whereIn('status', Balance::statuses())
-            ->selectRaw('COALESCE(SUM(GREATEST(total_cents - paid_cents, 0)), 0) AS balance')->value('balance');
+            ->selectRaw('COALESCE(SUM(GREATEST(total_cents - returned_cents - paid_cents, 0)), 0) AS balance')->value('balance');
     }
 
     /**
@@ -121,7 +121,7 @@ class Customer extends Model
     {
         return $query->whereHas('orders', fn (Builder $orders): Builder => $orders
             ->whereIn('status', Balance::statuses())
-            ->whereColumn('total_cents', '>', 'paid_cents'));
+            ->whereRaw('total_cents - returned_cents > paid_cents'));
     }
 
     /** @return Builder<Order> */
@@ -129,7 +129,7 @@ class Customer extends Model
     {
         return Order::query()->whereColumn('orders.customer_id', 'customers.id')
             ->whereIn('status', Balance::statuses())
-            ->selectRaw('COALESCE(SUM(GREATEST(total_cents - paid_cents, 0)), 0)');
+            ->selectRaw('COALESCE(SUM(GREATEST(total_cents - returned_cents - paid_cents, 0)), 0)');
     }
 
     /** @return BelongsTo<Customer, $this> */

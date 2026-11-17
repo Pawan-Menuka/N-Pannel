@@ -15,6 +15,8 @@ use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Filament\Resources\Orders\RelationManagers\QuoteSnapshotsRelationManager;
 use App\Models\Order;
 use App\Models\Payment;
+use App\Models\SalesReturn;
+use App\Models\SalesReturnLine;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -88,6 +90,7 @@ class OrderResource extends Resource
                     ->visible(fn (TextEntry $component): bool => filled($component->getState())),
             ]),
             Section::make('Totals')->schema([
+                TextEntry::make('returned_cents')->label('Returned')->visible(fn (Order $record): bool => $record->returned_cents > 0)->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
                 TextEntry::make('subtotal_cents')->label('Subtotal')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
                 TextEntry::make('delivery_cents')->label('Delivery')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
                 TextEntry::make('discount_cents')->label('Discount')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
@@ -113,6 +116,25 @@ class OrderResource extends Resource
                 TextEntry::make('status')->badge(),
                 TextEntry::make('reference')->visible(fn (TextEntry $component): bool => filled($component->getState())),
                 TextEntry::make('confirmed_at')->dateTime()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+            ]),
+            Section::make('Returns')->visible(fn (Order $record): bool => $record->salesReturns()->exists())->schema([
+                RepeatableEntry::make('salesReturns')->hiddenLabel()
+                    ->state(fn (Order $record): array => $record->salesReturns()->with(['lines.orderLine', 'creditNote'])->orderBy('id')->get()->all())->schema([
+                        TextEntry::make('created_at')->label('Date')->dateTime(), TextEntry::make('reason'),
+                        TextEntry::make('note')->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                        TextEntry::make('total_cents')->label('Total')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
+                        TextEntry::make('refund_cents')->label('Refund')->visible(fn (SalesReturn $record): bool => $record->refund_cents > 0)->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
+                        RepeatableEntry::make('lines')->schema([
+                            TextEntry::make('orderLine.description')->label('Item'), TextEntry::make('qty'),
+                            TextEntry::make('disposition')->label('Stock')->state(fn (SalesReturnLine $record): string => $record->restock ? 'Back to stock' : 'Damaged'),
+                            TextEntry::make('unit_price_cents')->label('Unit value')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
+                            TextEntry::make('line_total_cents')->label('Value')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
+                        ]),
+                        TextEntry::make('creditNote.number')->label('Credit note')->visible(fn (SalesReturn $record): bool => $record->creditNote !== null),
+                        TextEntry::make('printCreditNote')->label('Credit note print')->state('Print credit note')
+                            ->visible(fn (SalesReturn $record): bool => $record->creditNote !== null)
+                            ->url(fn (SalesReturn $record): ?string => $record->creditNote === null ? null : route('filament.admin.credit-notes.print', ['creditNote' => $record->creditNote]))->openUrlInNewTab(),
+                    ]),
             ]),
             RepeatableEntry::make('events')->label('Timeline')
                 ->state(fn (Order $record): array => $record->events()->with('user')->orderByDesc('created_at')->orderByDesc('id')->get()->all())->schema([

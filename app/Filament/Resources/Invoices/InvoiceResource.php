@@ -7,6 +7,7 @@ use App\Enums\DocumentStatus;
 use App\Filament\Resources\Invoices\Pages\ListInvoices;
 use App\Filament\Resources\Invoices\Pages\ViewInvoice;
 use App\Filament\Resources\Orders\OrderResource;
+use App\Models\CreditNote;
 use App\Models\Invoice;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -91,6 +92,14 @@ class InvoiceResource extends Resource
                 TextEntry::make('date'), TextEntry::make('method'), TextEntry::make('amount'),
                 TextEntry::make('receiptUrl')->label('Receipt')->formatStateUsing(fn (string $state): string => 'Print receipt')
                     ->url(fn (?string $state): ?string => $state)->openUrlInNewTab()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+            ]),
+            Section::make('Credit notes')->visible(fn (Invoice $record): bool => $record->creditNotes()->exists())->schema([
+                RepeatableEntry::make('creditNotes')->hiddenLabel()->schema([
+                    TextEntry::make('number'), TextEntry::make('issued_on')->label('Date')->date(),
+                    TextEntry::make('total_cents')->label('Total')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
+                    TextEntry::make('printCreditNote')->label('Print')->state('Print credit note')
+                        ->url(fn (CreditNote $record): string => route('filament.admin.credit-notes.print', ['creditNote' => $record]))->openUrlInNewTab(),
+                ]),
             ]),
             Section::make('Void information')->visible(fn (Invoice $record): bool => $record->status === DocumentStatus::Void)->schema([
                 TextEntry::make('voided_at')->dateTime()->visible(fn (TextEntry $component): bool => filled($component->getState())),

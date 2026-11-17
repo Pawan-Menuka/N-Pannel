@@ -30,7 +30,7 @@ use Spatie\Activitylog\Support\LogOptions;
  * @property AcceptedVia|null $accepted_via
  * @property Carbon|null $valid_until
  */
-#[Fillable(['reference', 'token_hash', 'customer_id', 'source', 'locale', 'status', 'payment_state', 'fulfilment', 'location_id', 'price_tier', 'district_id', 'customer_name', 'phone_e164', 'email', 'address_line1', 'address_line2', 'city', 'delivery_notes', 'subtotal_cents', 'delivery_cents', 'discount_cents', 'total_cents', 'tax_cents', 'paid_cents', 'refunded_cents', 'required_advance_cents', 'exclusions', 'valid_until', 'hold_expires_at', 'quote_revision', 'accepted_at', 'accepted_via', 'needs_attention', 'attention_note', 'cancel_reason', 'created_by_id', 'placed_at', 'confirmed_at', 'completed_at', 'cancelled_at'])]
+#[Fillable(['reference', 'token_hash', 'customer_id', 'source', 'locale', 'status', 'payment_state', 'fulfilment', 'location_id', 'price_tier', 'district_id', 'customer_name', 'phone_e164', 'email', 'address_line1', 'address_line2', 'city', 'delivery_notes', 'subtotal_cents', 'delivery_cents', 'discount_cents', 'total_cents', 'returned_cents', 'tax_cents', 'paid_cents', 'refunded_cents', 'required_advance_cents', 'exclusions', 'valid_until', 'hold_expires_at', 'quote_revision', 'accepted_at', 'accepted_via', 'needs_attention', 'attention_note', 'cancel_reason', 'created_by_id', 'placed_at', 'confirmed_at', 'completed_at', 'cancelled_at'])]
 #[Hidden(['token_hash'])]
 class Order extends Model
 {
@@ -49,6 +49,7 @@ class Order extends Model
         'delivery_cents' => 0,
         'discount_cents' => 0,
         'total_cents' => 0,
+        'returned_cents' => 0,
         'tax_cents' => 0,
         'paid_cents' => 0,
         'refunded_cents' => 0,
@@ -69,6 +70,7 @@ class Order extends Model
             'delivery_cents' => 'integer',
             'discount_cents' => 'integer',
             'total_cents' => 'integer',
+            'returned_cents' => 'integer',
             'tax_cents' => 'integer',
             'paid_cents' => 'integer',
             'refunded_cents' => 'integer',
@@ -161,9 +163,14 @@ class Order extends Model
         return $this->belongsTo(User::class, 'created_by_id');
     }
 
+    public function effectiveTotalCents(): int
+    {
+        return max(0, $this->total_cents - $this->returned_cents);
+    }
+
     public function balanceCents(): int
     {
-        return PaymentStates::balance($this->total_cents, $this->paid_cents, $this->status);
+        return PaymentStates::balance($this->effectiveTotalCents(), $this->paid_cents, $this->status);
     }
 
     public function activeInvoice(): ?Invoice

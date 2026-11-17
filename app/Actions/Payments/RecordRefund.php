@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * Lock the order row before any stock rows. IS-8 through IS-12 must follow this order.
  * Multi-row stock operations must then lock stock_levels in ascending variant_id order.
- * IS-12 must reduce the amount owed (credit) in the same transaction.
+ * Returns reduce the effective total before their linked refund is recorded.
  */
 final class RecordRefund
 {
@@ -44,8 +44,14 @@ final class RecordRefund
                 throw ValidationException::withMessages(['sales_return' => 'The sales return must belong to this order.']);
             }
             $this->payments->handle($locked);
+            if ($salesReturn !== null) {
+                $maximum = max(0, $locked->paid_cents - $locked->effectiveTotalCents());
+                if ($amountCents < 1 || $amountCents > $maximum) {
+                    throw ValidationException::withMessages(['amount_cents' => 'Up to '.Lkr::formatWithCurrency($maximum).' can be refunded.']);
+                }
+            }
             if ($salesReturn === null && ! in_array($locked->status, [OrderStatus::Cancelled, OrderStatus::Expired], true)) {
-                $overpayment = $locked->paid_cents > $locked->total_cents ? $locked->paid_cents - $locked->total_cents : 0;
+                $overpayment = max(0, $locked->paid_cents - $locked->effectiveTotalCents());
                 if ($amountCents < 1 || $amountCents > $overpayment) {
                     $message = $overpayment === 0
                         ? 'Nothing has been overpaid on this order. Cancel the order or record a return first.'

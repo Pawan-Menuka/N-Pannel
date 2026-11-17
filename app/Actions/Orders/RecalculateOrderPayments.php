@@ -39,7 +39,7 @@ final class RecalculateOrderPayments
         return [
             'paid_cents' => $net,
             'refunded_cents' => $refunded,
-            'payment_state' => PaymentStates::derive($order->total_cents, $net, $refunded),
+            'payment_state' => PaymentStates::derive($order->effectiveTotalCents(), $net, $refunded, $order->total_cents),
         ];
     }
 }

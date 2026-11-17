@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Auth\EditProfile;
 use App\Filament\Auth\RequiredAppAuthentication;
+use App\Http\Controllers\AdminCreditNoteDocumentController;
 use App\Http\Controllers\AdminInvoiceDocumentController;
 use App\Http\Controllers\AdminQuoteDocumentController;
 use App\Http\Controllers\AdminReceiptDocumentController;
@@ -34,6 +35,7 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->authenticatedRoutes(function (): void {
+                Route::get('credit-notes/{creditNote}/print', AdminCreditNoteDocumentController::class)->name('credit-notes.print');
                 Route::get('invoices/{invoice}/print', AdminInvoiceDocumentController::class)->name('invoices.print');
                 Route::get('payments/{payment}/receipt', AdminReceiptDocumentController::class)->name('payments.receipt');
                 Route::get('orders/{order}/quotes/{revision}/print', AdminQuoteDocumentController::class)

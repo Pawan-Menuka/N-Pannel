@@ -36,3 +36,12 @@ it('has no amount owed on cancelled or expired orders regardless of net payments
 it('keeps the amount to pay on quotes and other live orders', function (OrderStatus $status) {
     expect(PaymentStates::balance(10000, 3000, $status))->toBe(7000);
 })->with([OrderStatus::Quoted, OrderStatus::Placed, OrderStatus::Confirmed, OrderStatus::Processing, OrderStatus::ReadyForCollection, OrderStatus::Dispatched, OrderStatus::Completed]);
+
+it('distinguishes unpaid full returns from originally free orders and refunded orders', function (int $original, int $net, int $refunded, PaymentState $expected) {
+    expect(PaymentStates::derive(0, $net, $refunded, $original))->toBe($expected);
+})->with([
+    'never paid and fully returned' => [10000, 0, 0, PaymentState::Unpaid],
+    'originally free' => [0, 0, 0, PaymentState::Paid],
+    'fully refunded' => [10000, 0, 10000, PaymentState::Refunded],
+    'paid and awaiting refund' => [10000, 10000, 0, PaymentState::Paid],
+]);

@@ -24,7 +24,7 @@ it('records a partial refund without a receipt and recalculates the net balance'
     $return = SalesReturn::factory()->for($order)->create();
 
     $refund = DB::transaction(function () use ($order, $by, $return): Payment {
-        $order->update(['total_cents' => 7000]);
+        $order->update(['returned_cents' => 3000]);
 
         return app(RecordRefund::class)->handle($order, PaymentMethod::Cash, 3000, ' Returned items ', $by, $return);
     });
@@ -205,13 +205,13 @@ it('allows refunds up to net paid on cancelled and expired orders', function (Or
     expect($order->customer->balanceCents())->toBe(0);
 })->with([OrderStatus::Cancelled, OrderStatus::Expired]);
 
-it('limits a return refund to net paid even when the credited order has a larger total', function () {
+it('refuses a return refund that would reopen an unpaid balance', function () {
     $by = User::factory()->sales()->create();
     $order = Order::factory()->create(['status' => OrderStatus::Completed, 'total_cents' => 10000]);
     Payment::factory()->for($order)->create(['status' => PaymentStatus::Confirmed, 'amount_cents' => 6000]);
     $return = SalesReturn::factory()->for($order)->create();
     expect(fn () => app(RecordRefund::class)->handle($order, PaymentMethod::Cash, 6001, 'Return', $by, $return))
-        ->toThrow(ValidationException::class, 'You can refund at most Rs 60.00.');
+        ->toThrow(ValidationException::class, 'Up to Rs 0.00 can be refunded.');
     $this->assertDatabaseCount('payments', 1);
 });
 

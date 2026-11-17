@@ -109,6 +109,9 @@ final class TransitionOrder
 
     private function validate(Order $order, OrderStatus $to, string $cancelReason): TransitionEffects
     {
+        if ($to === OrderStatus::Cancelled && $order->salesReturns()->exists()) {
+            throw ValidationException::withMessages(['to' => 'This order has returns and cannot be cancelled.']);
+        }
         if (! in_array($to, self::targetsFor($order), true)) {
             $message = match (true) {
                 $order->status === OrderStatus::Placed => 'Placed orders belong to online checkout and cannot be moved here.',
