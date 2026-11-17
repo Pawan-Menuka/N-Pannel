@@ -13,8 +13,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-4 | Stock core | done (PR #5 merged) | `feature/is-4-stock` | See IS-4 log |
 | IS-5 | Suppliers and goods received | done (PR #6 merged) | `feature/is-5-purchasing` | See IS-5 log |
 | IS-6 | Customers | done (PR #7 merged) | `feature/is-6-customers` | See IS-6 log |
-| IS-7 | Order core, payments | done locally; CI runs on the PR | `feature/is-7-orders` | See IS-7 log |
-| IS-8 | Counter sales | not started | | |
+| IS-7 | Order core, payments | done (PR #8 merged) | `feature/is-7-orders` | See IS-7 log |
+| IS-8 | Counter sales | done locally; CI runs on the PR | `feature/is-8-counter-sales` | See IS-8 log |
 | IS-9 | Quotes | not started | | |
 | IS-10 | Fulfilment, order screen | not started | | |
 | IS-11 | Invoices and receipts | not started | | |
@@ -25,6 +25,63 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-8 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- **Domain:** `Domain/Order/OrderReference::generate()` makes `O-` / `Q-` plus 6 characters from the blueprint 3.7 alphabet. The random source is injected, and `Actions/Orders/OrderReferenceGenerator` wraps it so tests can swap it.
+- **`Actions/Orders/CreateCounterSale`** (`handle(Customer, list<CounterSaleLine>, User, ?CounterSalePayment, ?string $stockOverrideReason)`):
+  - **Checks before anything is written:**
+    - Gate `create` on Order (admin and sales). The stock role is refused.
+    - Merged, anonymised and deleted customers are refused.
+    - At least one product line, at most 200 lines. Product lines need an active variant. Delivery, labour, other and discount lines need a description and a price.
+  - **Prices** (`CounterSalePricing`, `PrepareCounterSaleLines`):
+    - A trade-tier customer gets `trade_price_cents`, falling back to retail. Any explicit price is kept.
+    - Lines snapshot the SKU, description, sale unit and last cost.
+    - Totals come from `Domain\Order\Totals`.
+  - **Payment:** a walk-in sale must be paid in full, unless the total is 0. A named customer can pay part or nothing, and the rest shows as balance owed.
+  - **One transaction, in this lock order:**
+    1. Customer row (`FOR SHARE`, re-checked; this blocks a concurrent delete or merge without making walk-in sales wait for each other).
+    2. Order insert (reference retried up to 5 times inside a savepoint), lines, `RecalculateOrderPayments` (a zero total is paid), and a status event "Counter sale".
+    3. `RecordPayment`, which locks the order and takes the `RCP-` number.
+    4. Stock: product lines are combined per tracked variant (`ReserveStock::handleAggregated`, new, with `handle()` unchanged) in ascending `variant_id`, with reason `counter_sale` and the order as source.
+  - **Shortages:**
+    - Every short item is listed in one message ("SKU: wanted N, in stock M") and the whole sale rolls back, so no order, payment or receipt number is used.
+    - With a reason and the new `overrideStock` ability (admin and sales), only the short variants are retried with `is_override`. The reason goes on the movement, and a note event "Stock override: … — SKUs" is written.
+- **Filament** (group Sales):
+  - **Quotes and orders** (`OrderResource`): a read-only list (reference, customer, source, status, payment state, total, paid, balance) with search and filters, and a view page showing details, totals, lines, payments and events. Empty fields are hidden. There are no create or edit routes; IS-10 extends this.
+  - **New sale** (`/admin/orders/new-sale`, a header action):
+    - **Customer:** walk-in by default, or search, or add by phone through `ResolveCustomer`.
+    - **Lines:** a repeater with live line totals and order totals. Items are searched by SKU or name, with stock shown. The price is filled in for the customer's tier, and switching customer re-prices lines whose price wasn't edited by hand.
+    - **Payment:** on the same screen. A blank amount pays the full total.
+    - **Stock override:** the reason field appears only after a shortage, and only for users with `overrideStock`. Editing the lines or the customer hides it again.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1116/1116 (5121 assertions).
+- **Two-connection Postgres test:** two sales race for the last unit. One succeeds, the other is refused, and stock never goes negative.
+- No new migrations.
+- **Browser, on the dev database:**
+  - A walk-in sale of 2 × TEE-3000, cash, became **O-GCCWMW** with **RCP-2026-00001**. TEE-3000 went from 25 to 23, and the movement is `counter_sale` with the order as source.
+  - A walk-in sale of 50 × GYP-9-2400 with only 40 in stock was refused with "Stock is short. GYP-9-2400: wanted 50, in stock 40", and the override field appeared.
+  - With a reason, it went through as **O-PZGKPR** with **RCP-2026-00002**, so the refused attempt used no number. The movement is flagged override and carries the reason, and the order history has the status, payment and override entries.
+
+**Fixed after the checks:**
+- **Found by the tests:** the New sale page crashed on load because the line-kind field holds an enum, not a string. Codex also replaced its custom page template with Filament's default page layout.
+- **Found by the review subagent:**
+  - Line prices didn't change when the customer changed (retail vs trade).
+  - An override reason given for one shortage would also cover shortages added later.
+  - The customer wasn't locked or re-checked inside the transaction, so a customer deleted mid-sale gave a 500.
+  - The live form ran several queries per line on every update.
+  - A lock-order test checked a doc comment instead of behaviour.
+- **Found in the browser:** empty fields showed as blank labels on the order page.
+
+**Carried forward:**
+- **IS-10** extends `OrderResource` (tabs, "Move to…", the balance actions). Counter sales start at `confirmed`, so they follow the normal fulfilment path from there.
+- **IS-9 `AcceptQuoteByStaff`** should reuse the same stock pattern: a normal attempt first, an override only for short variants, all in ascending `variant_id`, after the order lock and any payment.
+- **Lock order** is now: customer row (shared) → order row → document sequence → stock levels (ascending variant).
+
+**Dev data left by the check:** orders O-GCCWMW and O-PZGKPR (walk-in, paid), receipts RCP-2026-00001 and 00002. TEE-3000 is at 23 and **GYP-9-2400 is at −10** because of the override sale; a stock adjustment or a goods receipt puts it right.
 
 ## IS-7 log
 

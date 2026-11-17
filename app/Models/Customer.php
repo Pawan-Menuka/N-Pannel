@@ -17,6 +17,10 @@ use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
+/**
+ * @property CustomerType $type
+ * @property PriceTier $price_tier
+ */
 #[Fillable(['phone_e164', 'name', 'name_edited_by_staff', 'type', 'price_tier', 'company_name', 'vat_number', 'email', 'preferred_locale', 'district_id', 'address_line1', 'address_line2', 'city', 'tags', 'notes', 'assigned_to_id', 'marketing_opt_in', 'marketing_opt_in_at', 'last_activity_at', 'anonymised_at', 'merged_into_id', 'is_walk_in'])]
 class Customer extends Model
 {

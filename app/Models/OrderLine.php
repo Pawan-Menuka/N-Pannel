@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property OrderLineKind $kind
+ * @property SaleUnit|null $sale_unit
+ */
 #[Fillable(['order_id', 'kind', 'variant_id', 'sku', 'description', 'sale_unit', 'qty', 'unit_price_cents', 'line_total_cents', 'unit_cost_cents', 'sort_order'])]
 class OrderLine extends Model
 {

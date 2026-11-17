@@ -10,6 +10,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property OrderEventType $type
+ * @property OrderStatus|null $from_status
+ * @property OrderStatus|null $to_status
+ */
 #[Fillable(['order_id', 'type', 'from_status', 'to_status', 'note', 'user_id'])]
 class OrderEvent extends Model
 {

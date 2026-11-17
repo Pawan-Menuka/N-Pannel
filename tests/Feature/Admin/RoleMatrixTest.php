@@ -105,6 +105,13 @@ it('allows only active sales and admin staff to record payments and refunds', fu
     expect($user->can('refund', Models\Payment::class))->toBe($allowed);
 })->with(UserRole::cases())->with([true, false]);
 
+it('allows only active sales and admin staff to override counter sale stock', function (UserRole $role, bool $active) {
+    $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
+
+    expect($user->can('overrideStock', Models\Order::class))
+        ->toBe($active && in_array($role, [UserRole::Admin, UserRole::Sales], true));
+})->with(UserRole::cases())->with([true, false]);
+
 it('limits receipt posting voiding and override abilities by role status and active flag', function (UserRole $role, bool $active, GoodsReceiptStatus $status) {
     $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
     $receipt = new Models\GoodsReceipt(['status' => $status]);
