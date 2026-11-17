@@ -2,6 +2,7 @@
 
 use App\Domain\Order\AmountTooLarge;
 use App\Domain\Order\PaymentStates;
+use App\Enums\OrderStatus;
 use App\Enums\PaymentState;
 
 it('derives payment state from net paid and refund history', function (int $total, int $net, int $refunded, PaymentState $expected) {
@@ -21,9 +22,17 @@ it('derives payment state from net paid and refund history', function (int $tota
 ]);
 
 it('floors the balance at zero', function (int $total, int $net, int $expected) {
-    expect(PaymentStates::balance($total, $net))->toBe($expected);
+    expect(PaymentStates::balance($total, $net, OrderStatus::Confirmed))->toBe($expected);
 })->with([[10000, 0, 10000], [10000, 4000, 6000], [10000, 10000, 0], [10000, 12000, 0], [10000, -100, 10100]]);
 
 it('refuses balance overflow', function () {
-    expect(fn () => PaymentStates::balance(PHP_INT_MAX, -1))->toThrow(AmountTooLarge::class);
+    expect(fn () => PaymentStates::balance(PHP_INT_MAX, -1, OrderStatus::Confirmed))->toThrow(AmountTooLarge::class);
 });
+
+it('has no amount owed on cancelled or expired orders regardless of net payments', function (OrderStatus $status, int $net) {
+    expect(PaymentStates::balance(16250000, $net, $status))->toBe(0);
+})->with([OrderStatus::Cancelled, OrderStatus::Expired])->with([0, 5000, 16250000, 20000000]);
+
+it('keeps the amount to pay on quotes and other live orders', function (OrderStatus $status) {
+    expect(PaymentStates::balance(10000, 3000, $status))->toBe(7000);
+})->with([OrderStatus::Quoted, OrderStatus::Placed, OrderStatus::Confirmed, OrderStatus::Processing, OrderStatus::ReadyForCollection, OrderStatus::Dispatched, OrderStatus::Completed]);

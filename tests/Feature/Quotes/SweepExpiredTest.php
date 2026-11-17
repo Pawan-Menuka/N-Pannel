@@ -1,8 +1,11 @@
 <?php
 
 use App\Actions\Orders\SweepExpired;
+use App\Actions\Payments\RecordPayment;
 use App\Enums\OrderStatus;
+use App\Enums\PaymentMethod;
 use App\Models\Order;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 
@@ -49,3 +52,24 @@ it('processes every chunk even while changing the candidate status', function ()
     expect(app(SweepExpired::class)->handle()->expiredQuotes)->toBe(101);
     expect(Order::query()->where('status', OrderStatus::Expired)->count())->toBe(101);
 });
+
+it('flags an expired quote with a net advance for refund while leaving unpaid quotes unflagged', function (bool $paid) {
+    $this->freezeSecond();
+    $quote = Order::factory()->create(['valid_until' => now()->subSecond()]);
+    if ($paid) {
+        app(RecordPayment::class)->handle($quote, PaymentMethod::Cash, 5000, null, 'Advance', User::factory()->sales()->create());
+    }
+    /** The sweep must use confirmed payments rather than the cached amount. */
+    $quote->update(['paid_cents' => $paid ? 0 : 5000]);
+    expect(app(SweepExpired::class)->handle()->expiredQuotes)->toBe(1);
+    $quote->refresh();
+    expect($quote->status)->toBe(OrderStatus::Expired);
+    expect($quote->needs_attention)->toBe($paid);
+    expect($quote->paid_cents)->toBe($paid ? 5000 : 0);
+    expect($quote->attention_note)->toBe($paid ? 'Rs 50.00 was paid on this expired quote — record a refund.' : null);
+    expect($quote->events()->where('type', 'attention')->count())->toBe($paid ? 1 : 0);
+    if ($paid) {
+        expect($quote->events()->where('type', 'attention')->sole()->note)->toBe('Rs 50.00 was paid on this expired quote — record a refund.');
+    }
+    expect(app(SweepExpired::class)->handle()->expiredQuotes)->toBe(0);
+})->with([false, true]);

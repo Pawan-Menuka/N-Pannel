@@ -2,6 +2,7 @@
 
 namespace App\Domain\Order;
 
+use App\Enums\OrderStatus;
 use App\Enums\PaymentState;
 
 final class PaymentStates
@@ -21,9 +22,9 @@ final class PaymentStates
         return PaymentState::PartiallyPaid;
     }
 
-    public static function balance(int $totalCents, int $netPaidCents): int
+    public static function balance(int $totalCents, int $netPaidCents, OrderStatus $status): int
     {
-        if ($netPaidCents >= $totalCents) {
+        if (in_array($status, [OrderStatus::Cancelled, OrderStatus::Expired], true) || $netPaidCents >= $totalCents) {
             return 0;
         }
         if ($netPaidCents < 0 && $totalCents > PHP_INT_MAX + $netPaidCents) {

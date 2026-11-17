@@ -163,7 +163,7 @@ class Order extends Model
 
     public function balanceCents(): int
     {
-        return PaymentStates::balance($this->total_cents, $this->paid_cents);
+        return PaymentStates::balance($this->total_cents, $this->paid_cents, $this->status);
     }
 
     public function activeInvoice(): ?Invoice

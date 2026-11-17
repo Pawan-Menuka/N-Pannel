@@ -43,6 +43,14 @@ dataset('role matrix', function () {
     }
 });
 
+it('limits fulfilment abilities to active sales staff and completion overrides to admins', function (UserRole $role, bool $active) {
+    $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
+    $order = new Models\Order;
+    expect($user->can('transition', $order))->toBe($active && in_array($role, [UserRole::Admin, UserRole::Sales], true));
+    expect($user->can('clearAttention', $order))->toBe($active && in_array($role, [UserRole::Admin, UserRole::Sales], true));
+    expect($user->can('completeOverride', $order))->toBe($active && $role === UserRole::Admin);
+})->with(UserRole::cases())->with([true, false]);
+
 it('enforces every model ability for each staff role', function (string $modelClass, UserRole $role, string $code, string $read, string $create, string $update, string $delete) {
     $user = Models\User::factory()->make(['role' => $role, 'is_active' => $code !== 'I']);
     $model = new $modelClass;

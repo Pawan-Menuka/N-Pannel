@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Orders;
 
 use App\Domain\Money\Lkr;
+use App\Enums\LateCancelReason;
 use App\Enums\OrderSource;
 use App\Enums\OrderStatus;
 use App\Filament\Resources\Orders\Pages\EditQuote;
@@ -17,6 +18,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -42,6 +44,7 @@ class OrderResource extends Resource
             TextColumn::make('customer_name')->label('Customer'),
             TextColumn::make('source')->badge(),
             TextColumn::make('status')->badge(),
+            IconColumn::make('needs_attention')->label('Needs attention')->boolean(),
             TextColumn::make('payment_state')->badge(),
             TextColumn::make('total_cents')->label('Total')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
             TextColumn::make('paid_cents')->label('Paid')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
@@ -56,6 +59,8 @@ class OrderResource extends Resource
     public static function infolist(Schema $schema): Schema
     {
         return $schema->components([
+            Section::make('Needs attention')->visible(fn (Order $record): bool => $record->needs_attention)
+                ->schema([TextEntry::make('attention_note')->hiddenLabel()]),
             Section::make('Order')->schema([
                 TextEntry::make('reference'), TextEntry::make('customer_name')->label('Customer'),
                 TextEntry::make('phone_e164')->label('Phone')->visible(fn (TextEntry $component): bool => filled($component->getState())),
@@ -66,6 +71,11 @@ class OrderResource extends Resource
                 TextEntry::make('createdBy.name')->label('Created by')->visible(fn (TextEntry $component): bool => filled($component->getState())),
                 TextEntry::make('created_at')->dateTime(),
                 TextEntry::make('confirmed_at')->dateTime()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                TextEntry::make('fulfilment')->badge()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                TextEntry::make('completed_at')->dateTime()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                TextEntry::make('cancelled_at')->dateTime()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                TextEntry::make('cancel_reason')->formatStateUsing(fn (string $state): string => LateCancelReason::tryFrom($state)?->getLabel() ?? $state)
+                    ->visible(fn (TextEntry $component): bool => filled($component->getState())),
             ]),
             Section::make('Totals')->schema([
                 TextEntry::make('subtotal_cents')->label('Subtotal')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
@@ -91,14 +101,15 @@ class OrderResource extends Resource
                 TextEntry::make('reference')->visible(fn (TextEntry $component): bool => filled($component->getState())),
                 TextEntry::make('confirmed_at')->dateTime()->visible(fn (TextEntry $component): bool => filled($component->getState())),
             ]),
-            RepeatableEntry::make('events')->schema([
-                TextEntry::make('type')->badge(),
-                TextEntry::make('from_status')->badge()->visible(fn (TextEntry $component): bool => filled($component->getState())),
-                TextEntry::make('to_status')->badge()->visible(fn (TextEntry $component): bool => filled($component->getState())),
-                TextEntry::make('note')->visible(fn (TextEntry $component): bool => filled($component->getState())),
-                TextEntry::make('user.name')->label('Staff member')->visible(fn (TextEntry $component): bool => filled($component->getState())),
-                TextEntry::make('created_at')->dateTime(),
-            ]),
+            RepeatableEntry::make('events')->label('Timeline')
+                ->state(fn (Order $record): array => $record->events()->with('user')->orderByDesc('created_at')->orderByDesc('id')->get()->all())->schema([
+                    TextEntry::make('created_at')->dateTime(),
+                    TextEntry::make('type')->badge(),
+                    TextEntry::make('from_status')->badge()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                    TextEntry::make('to_status')->badge()->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                    TextEntry::make('note')->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                    TextEntry::make('user.name')->label('Staff member')->visible(fn (TextEntry $component): bool => filled($component->getState())),
+                ]),
         ]);
     }
 

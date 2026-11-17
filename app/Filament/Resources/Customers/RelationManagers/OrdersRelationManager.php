@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Customers\RelationManagers;
 
-use App\Domain\Customers\Balance;
 use App\Domain\Money\Lkr;
 use App\Models\Order;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -24,7 +23,7 @@ class OrdersRelationManager extends RelationManager
             TextColumn::make('reference'), TextColumn::make('status')->badge(),
             TextColumn::make('total_cents')->label('Total')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
             TextColumn::make('paid_cents')->label('Paid')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
-            TextColumn::make('balance')->state(fn (Order $record): int => Balance::owed($record->total_cents, $record->paid_cents))->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
+            TextColumn::make('balance')->state(fn (Order $record): int => $record->balanceCents())->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
             TextColumn::make('created_at')->label('Date')->dateTime(),
         ])->headerActions([])->recordActions([])->toolbarActions([]);
     }

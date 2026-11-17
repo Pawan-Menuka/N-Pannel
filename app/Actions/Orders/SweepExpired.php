@@ -2,6 +2,7 @@
 
 namespace App\Actions\Orders;
 
+use App\Domain\Money\Lkr;
 use App\Domain\Order\QuoteValidity;
 use App\Domain\Order\StateMachine;
 use App\Enums\OrderEventType;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 /** Expires quotes only. Placed orders and their online checkout holds belong to Release 3. */
 final class SweepExpired
 {
-    public function __construct(private RecordOrderEvent $events) {}
+    public function __construct(private RecordOrderEvent $events, private RecalculateOrderPayments $payments, private AppendAttentionNote $attention) {}
 
     public function handle(?CarbonImmutable $now = null): SweepResult
     {
@@ -26,7 +27,11 @@ final class SweepExpired
                     return 0;
                 }
                 StateMachine::assert(OrderStatus::Quoted, OrderStatus::Expired);
+                $this->payments->handle($quote);
                 $quote->update(['status' => OrderStatus::Expired]);
+                if ($quote->paid_cents > 0) {
+                    $this->attention->handle($quote, Lkr::formatWithCurrency($quote->paid_cents).' was paid on this expired quote — record a refund.', null);
+                }
                 $date = $quote->valid_until?->copy()->setTimezone('Asia/Colombo')->format('d M Y');
                 $this->events->handle($quote, OrderEventType::Status, from: OrderStatus::Quoted, to: OrderStatus::Expired, note: 'Quote expired (valid until '.$date.')');
 

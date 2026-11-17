@@ -29,6 +29,9 @@ beforeEach(function () {
         'database.connections.quote_owner' => config('database.connections.'.$this->primary),
         'database.connections.quote_peer' => config('database.connections.'.$this->primary),
     ]);
+    foreach (['quote_owner', 'quote_peer'] as $name) {
+        DB::connection($name)->statement("SET lock_timeout = '5s'");
+    }
     DB::setDefaultConnection('quote_owner');
     try {
         [$this->by, $this->customer, $this->variant, $this->location, $this->quote] = DB::transaction(fn (): array => Model::withoutEvents(function (): array {
