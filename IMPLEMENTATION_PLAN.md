@@ -16,8 +16,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-7 | Order core, payments | done (PR #8 merged) | `feature/is-7-orders` | See IS-7 log |
 | IS-8 | Counter sales | done (PR #9 merged) | `feature/is-8-counter-sales` | See IS-8 log |
 | IS-9 | Quotes | done (PR #10 merged) | `feature/is-9-quotes` | See IS-9 log |
-| IS-10 | Fulfilment, order screen | done locally; CI runs on the PR | `feature/is-10-fulfilment` | See IS-10 log |
-| IS-11 | Invoices and receipts | not started | | |
+| IS-10 | Fulfilment, order screen | done (PR #11 merged) | `feature/is-10-fulfilment` | See IS-10 log |
+| IS-11 | Invoices and receipts | done locally, pending accountant layout approval; CI runs on the PR | `feature/is-11-invoices` | See IS-11 log |
 | IS-12 | Returns and credit notes | not started | | |
 | IS-13 | Dashboard and reports | not started | | |
 | IS-14 | Hardening and staging deploy | not started | | |
@@ -25,6 +25,83 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-11 log
+
+**Built (by Codex in two parts, verified 18 Nov 2026):**
+- **Tax rules:**
+  - Prices are VAT-inclusive only, as the plan says. `prices_include_vat` stays on and isn't shown on the settings page.
+  - An invoice is a **tax invoice** only when both a VAT number and a rate are set at the moment it's issued. Issuing is refused while only one of them is set or the rate is out of range, and the Tax settings page refuses that combination too.
+- **Domain** (pure PHP):
+  - `Invoice/Tax::inclusive()`: round-half-up of total × bp ÷ (10000 + bp), in integers, with an overflow guard. It gives the blueprint values (11,800,000 → 1,800,000 and 4,525,050 → 690,262 at 1800 bp).
+  - `VatRate`: converts a percent to basis points and back with no floats (18 → 1800, 12.5 → 1250; "18.555" is refused).
+  - `TaxRegistration`: VAT number and rate must be both set or both empty.
+  - `InvoiceEligibility` and `InvoiceMessage` (the WhatsApp text).
+- **Actions** (`app/Actions/Invoices`):
+  - **`IssueInvoice`:**
+    - Allowed for an order that is confirmed through completed, has no active invoice, and has at least one line. Checked before the Gate and again under the lock.
+    - Lock order: customer (shared) → order → `INV-` number, all in the same transaction, so a rollback leaves no gap.
+    - Copies the customer details at issue, and blanks every personal field for an anonymised customer.
+    - Copies the lines **without cost prices**, plus the totals and the tax. It also sets `orders.tax_cents`.
+    - The due date defaults to `invoice_due_days`.
+    - Makes a 64-hex token (only the sha256 is stored) and adds an order event.
+  - **`VoidInvoice`** (new `void` ability for admin and sales): needs a reason. It keeps the number, clears the token so the public link stops working, resets `orders.tax_cents`, and adds an event. Lock order: order → invoice. A new invoice can then be issued with the next number.
+  - **`GetInvoiceLink`** ("Get new invoice link"): makes a new link and kills the old one, and is refused for a void invoice.
+  - **Invoice protection:** an invoice can never be deleted, and after issue only the issued → void change and the token rotation are allowed. A void invoice can't be changed at all, not even its `updated_at` or by touching it.
+  - **`TransitionOrder`:** an order that has an issued invoice can't be cancelled ("Void invoice INV-… before cancelling this order.").
+  - **Documents:** `BuildInvoiceDocument` and `BuildReceiptDocument` (receipts exist only for confirmed payments with a receipt number; refunds have none).
+- **Printable pages** (English, plain layout ready for your own design, `resources/views/documents/{layout,invoice,receipt}`):
+  - **Invoice:** "TAX INVOICE" or "INVOICE", seller details and VAT number, the buyer from the copied details, lines, totals, "VAT included at X%", payments with receipt numbers (refunds shown negative), amount paid, balance due, bank details when the setting is on and an account is set, the footer, and a VOID banner.
+  - **Receipt:** one payment, with the order, the invoice number, the order totals and the balance.
+  - **Public link** `/i/{number}/{token}`: timing-safe check, issued invoices only, noindex/no-store/no-referrer, throttled.
+  - **Admin print pages** `admin/invoices/{id}/print` and `admin/payments/{id}/receipt`, inside the panel's authenticated routes.
+- **Filament:**
+  - **Invoices** (group Sales): a list with status, date and customer filters, and a view page with the details, buyer, lines, totals and payments (each with "Print receipt"). Buttons: Get new invoice link, Print, Void. No create, edit or delete. Empty fields are hidden.
+  - **On the order:** "Issue invoice" (due date, then the link pop-up), or "View invoice" once one exists, and "Print receipt" on each payment.
+  - **On the customer:** an Invoices panel.
+  - **Settings** (admin only): Business details, Tax, Documents, Bank details and Quotes, using the installed spatie settings plugin.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1687/1687 (7821 assertions).
+- **Two-connection Postgres tests:** two invoices issued at once for the same order give exactly one invoice, and invoice numbers stay consecutive with no gap after a rolled-back issue.
+- No new migrations.
+- **Browser, on the dev database:**
+  - **Tax settings:** a VAT number without a rate was refused with the "incomplete" message. A 12.5% rate saved as 1250 bp.
+  - **Business details:** saved test values (address and phone).
+  - **Issuing:** Q-5Q4KVC → "Issue invoice" (due date defaulted to today) → **INV-2026-00001**, with the link pop-up and its WhatsApp text.
+  - **The public page:** "TAX INVOICE", the seller VAT number, "VAT included at 12.5%: Rs 972.22" (875,000 × 1,250 ÷ 11,250 = 97,222 cents), receipts RCP-00003 and 00004, and a balance due of Rs 0.00.
+  - **Receipt RCP-2026-00003:** shows the order, the invoice number and the totals.
+  - **Voiding:** with a reason, the status became Void, the public link gave 404, and the order's tax went back to 0.
+
+**Fixed after the checks:**
+- **Postgres stopped** (exit 255) during a test run, the same as in IS-10. A restart was enough.
+- **Found by the tests:**
+  - Missing date annotations (Larastan).
+  - `/admin/invoices/create` gave a 500 instead of 404.
+  - The Void button didn't show a message when the invoice was already void.
+  - A test refunded money that hadn't been overpaid.
+  - Pop-up tests checked the page instead of the pop-up.
+  - A void invoice's `updated_at` could still change.
+- **Found by the review subagent** (nothing critical):
+  - An order with a live invoice could be cancelled.
+  - A half-set VAT setup silently issued plain invoices.
+  - A void invoice could be edited back to issued.
+  - The link button didn't say it replaces the old link.
+  - An anonymised customer's details weren't all blanked on the invoice.
+- **Found in the browser:** empty buyer fields showed as blank labels on the invoice page.
+
+**Carried forward:**
+- **Before this phase is final, your accountant must approve the invoice and receipt layouts** (plan item 3). The VAT rate and number come from them.
+- **IS-12:**
+  - Credit notes link to the invoice.
+  - Voiding an invoice that has credit notes needs a rule (refuse it, or void the credit notes too).
+  - The IS-10 note about early cancels still applies.
+- The receipt page uses the invoice footer. A separate receipt footer can be added if you want one.
+
+**Dev data left by the check:**
+- **Settings:** VAT number "TEST-VAT-123456789" at 12.5% (**clear both on the Tax page** before any real use), and test business details (the address "1 Test Road, Colombo", the phone "011 200 0000", and the WhatsApp digits "94770000000").
+- **INV-2026-00001** (void). The next invoice number will be 00002.
 
 ## IS-10 log
 

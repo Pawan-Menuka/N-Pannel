@@ -2,16 +2,19 @@
 
 namespace App\Filament\Resources\Orders;
 
+use App\Actions\Payments\CanPrintReceipt;
 use App\Domain\Money\Lkr;
 use App\Enums\LateCancelReason;
 use App\Enums\OrderSource;
 use App\Enums\OrderStatus;
+use App\Filament\Resources\Invoices\InvoiceResource;
 use App\Filament\Resources\Orders\Pages\EditQuote;
 use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Resources\Orders\Pages\NewSale;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Filament\Resources\Orders\RelationManagers\QuoteSnapshotsRelationManager;
 use App\Models\Order;
+use App\Models\Payment;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -63,6 +66,13 @@ class OrderResource extends Resource
                 ->schema([TextEntry::make('attention_note')->hiddenLabel()]),
             Section::make('Order')->schema([
                 TextEntry::make('reference'), TextEntry::make('customer_name')->label('Customer'),
+                TextEntry::make('active_invoice')->label('Invoice')->state(fn (Order $record): ?string => $record->activeInvoice()?->number)
+                    ->url(function (Order $record): ?string {
+                        $invoice = $record->activeInvoice();
+
+                        return $invoice === null ? null : InvoiceResource::getUrl('view', ['record' => $invoice]);
+                    })
+                    ->visible(fn (Order $record): bool => $record->activeInvoice() !== null),
                 TextEntry::make('phone_e164')->label('Phone')->visible(fn (TextEntry $component): bool => filled($component->getState())),
                 TextEntry::make('email')->visible(fn (TextEntry $component): bool => filled($component->getState())),
                 TextEntry::make('source')->badge(), TextEntry::make('status')->badge(),
@@ -94,6 +104,9 @@ class OrderResource extends Resource
                 TextEntry::make('line_total_cents')->label('Line total')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),
             ]),
             RepeatableEntry::make('payments')->schema([
+                TextEntry::make('print_receipt')->label('Receipt')->state('Print receipt')
+                    ->visible(fn (Payment $record): bool => CanPrintReceipt::check($record))
+                    ->url(fn (Payment $record): string => route('filament.admin.payments.receipt', ['payment' => $record]))->openUrlInNewTab(),
                 TextEntry::make('receipt_number')->visible(fn (TextEntry $component): bool => filled($component->getState())),
                 TextEntry::make('kind')->badge(), TextEntry::make('method')->badge(),
                 TextEntry::make('amount_cents')->label('Amount')->formatStateUsing(fn (int $state): string => Lkr::formatWithCurrency($state)),

@@ -65,7 +65,7 @@ class RoleMatrix
         Models\QuoteSnapshot::class => self::SalesReadOnly,
         Models\OrderEvent::class => self::SalesReadOnly,
         Models\Payment::class => self::Financial + ['refund' => ['admin', 'sales']],
-        Models\Invoice::class => self::Financial,
+        Models\Invoice::class => self::Financial + ['void' => ['admin', 'sales']],
         Models\CreditNote::class => self::Financial,
         Models\SalesReturn::class => self::Financial,
         Models\SalesReturnLine::class => self::Financial,

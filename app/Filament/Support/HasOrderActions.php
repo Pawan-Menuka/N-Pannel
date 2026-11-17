@@ -2,6 +2,8 @@
 
 namespace App\Filament\Support;
 
+use App\Actions\Invoices\CanIssueInvoice;
+use App\Actions\Invoices\IssueInvoice;
 use App\Actions\Orders\ClearAttention;
 use App\Actions\Orders\TransitionOrder;
 use App\Actions\Payments\RecordPayment;
@@ -10,11 +12,15 @@ use App\Domain\Money\Lkr;
 use App\Enums\LateCancelReason;
 use App\Enums\OrderStatus;
 use App\Enums\PaymentMethod;
+use App\Filament\Resources\Invoices\InvoiceResource;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
+use App\Settings\DocumentSettings;
+use Carbon\CarbonImmutable;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -25,12 +31,39 @@ use Illuminate\Validation\ValidationException;
 
 trait HasOrderActions
 {
+    use HasInvoiceLinkAction;
+
     abstract protected function fulfilmentRecord(): Order;
 
     /** @return list<Action> */
     protected function orderActions(): array
     {
         return [
+            Action::make('issueInvoice')->label('Issue invoice')
+                ->visible(fn (): bool => CanIssueInvoice::check($this->fulfilmentRecord(), $this->orderActor()))
+                ->schema([
+                    DatePicker::make('due_on')->label('Due date')->minDate(today())
+                        ->default(fn (): string => today()->addDays(app(DocumentSettings::class)->invoice_due_days)->toDateString()),
+                ])->action(function (array $data): void {
+                    try {
+                        $issued = app(IssueInvoice::class)->handle(
+                            $this->fulfilmentRecord(), filled($data['due_on'] ?? null) ? CarbonImmutable::parse($data['due_on'], config('app.timezone')) : null, $this->orderActor(),
+                        );
+                    } catch (ValidationException $exception) {
+                        PurchasingValidation::notify($exception);
+                        throw new Halt;
+                    }
+                    $this->fulfilmentRecord()->refresh();
+                    Notification::make()->success()->title('Invoice '.$issued->invoice->number.' issued')->send();
+                    $this->replaceMountedAction('invoiceLink', ['url' => $issued->url, 'whatsAppText' => $issued->whatsAppText, 'whatsAppUrl' => $issued->whatsAppUrl]);
+                }),
+            Action::make('viewInvoice')->label('View invoice')
+                ->visible(fn (): bool => $this->fulfilmentRecord()->activeInvoice() !== null)
+                ->url(function (): ?string {
+                    $invoice = $this->fulfilmentRecord()->activeInvoice();
+
+                    return $invoice === null ? null : InvoiceResource::getUrl('view', ['record' => $invoice]);
+                }),
             Action::make('moveTo')->label('Move to…')
                 ->visible(fn (): bool => $this->orderActor()->can('transition', $this->fulfilmentRecord()) && TransitionOrder::targetsFor($this->fulfilmentRecord()) !== [])
                 ->schema([
@@ -173,5 +206,10 @@ trait HasOrderActions
         $by = Filament::auth()->user();
 
         return $by;
+    }
+
+    protected function invoiceLinkAuthorized(): bool
+    {
+        return $this->orderActor()->can('view', $this->fulfilmentRecord());
     }
 }

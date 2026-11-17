@@ -118,6 +118,9 @@ final class TransitionOrder
             };
             throw ValidationException::withMessages(['to' => $message]);
         }
+        if ($to === OrderStatus::Cancelled && ($invoice = $order->activeInvoice()) !== null) {
+            throw ValidationException::withMessages(['to' => 'Void invoice '.$invoice->number.' before cancelling this order.']);
+        }
         try {
             return StateMachine::assert($order->status, $to, $cancelReason);
         } catch (InvalidTransition $exception) {

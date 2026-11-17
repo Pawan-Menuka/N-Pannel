@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Invoices\VoidInvoice;
 use App\Actions\Orders\AppendAttentionNote;
 use App\Actions\Orders\TransitionOrder;
 use App\Actions\Payments\RecordPayment;
@@ -9,6 +10,7 @@ use App\Enums\OrderStatus;
 use App\Enums\PaymentKind;
 use App\Enums\PaymentMethod;
 use App\Enums\PaymentStatus;
+use App\Models\Invoice;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
@@ -16,6 +18,43 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+
+it('requires voiding an active invoice before cancellation even before authorization', function (OrderStatus $status) {
+    $order = Order::factory()->create(['status' => $status, 'tax_cents' => 777]);
+    $invoice = Invoice::factory()->create(['order_id' => $order->id, 'tax_cents' => 777]);
+    $by = User::factory()->sales()->create();
+    $reason = in_array($status, [OrderStatus::ReadyForCollection, OrderStatus::Dispatched], true) ? 'not_collected' : 'Changed mind';
+
+    expect(fn () => app(TransitionOrder::class)->handle($order, OrderStatus::Cancelled, User::factory()->stock()->create(), cancelReason: $reason))
+        ->toThrow(ValidationException::class, 'Void invoice '.$invoice->number.' before cancelling this order.');
+    expect($order->fresh()->status)->toBe($status);
+    expect($order->fresh()->tax_cents)->toBe(777);
+    expect($order->activeInvoice()->id)->toBe($invoice->id);
+    expect($order->events()->count())->toBe(0);
+    $this->assertDatabaseCount('stock_movements', 0);
+
+    app(VoidInvoice::class)->handle($invoice, 'Cancel order', $by);
+    expect(app(TransitionOrder::class)->handle($order, OrderStatus::Cancelled, $by, cancelReason: $reason)->status)->toBe(OrderStatus::Cancelled);
+    expect($order->fresh()->tax_cents)->toBe(0);
+})->with([OrderStatus::Confirmed, OrderStatus::Processing, OrderStatus::ReadyForCollection, OrderStatus::Dispatched]);
+
+it('rechecks active invoices under the order lock before cancelling', function () {
+    $order = Order::factory()->create(['status' => OrderStatus::Confirmed]);
+    $by = User::factory()->sales()->create();
+    Gate::before(function (User $user, string $ability) use ($order): ?bool {
+        if ($ability === 'transition') {
+            Invoice::factory()->create(['order_id' => $order->id, 'number' => 'INV-2026-99999']);
+        }
+
+        return null;
+    });
+
+    expect(fn () => app(TransitionOrder::class)->handle($order, OrderStatus::Cancelled, $by, cancelReason: 'Changed mind'))
+        ->toThrow(ValidationException::class, 'Void invoice INV-2026-99999 before cancelling this order.');
+    expect($order->fresh()->status)->toBe(OrderStatus::Confirmed);
+    expect($order->events()->count())->toBe(0);
+    $this->assertDatabaseCount('stock_movements', 0);
+});
 
 dataset('staff transitions', [
     ['quoted', 'cancelled'], ['confirmed', 'processing'], ['confirmed', 'cancelled'],

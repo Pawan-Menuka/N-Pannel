@@ -20,8 +20,15 @@ class InvoiceFactory extends Factory
             'customer_id' => fn (array $attributes) => Order::findOrFail($attributes['order_id'])->customer_id,
             'status' => DocumentStatus::Issued,
             'locale' => 'en',
-            'customer_snapshot' => fn (array $attributes) => ['name' => Order::findOrFail($attributes['order_id'])->customer_name, 'address' => '24 Temple Road, Colombo'],
-            'lines' => [['kind' => 'product', 'description' => 'PVC ceiling panel', 'qty' => 1, 'unit_price_cents' => 125000, 'line_total_cents' => 125000]],
+            'customer_snapshot' => fn (array $attributes) => [
+                'name' => Order::findOrFail($attributes['order_id'])->customer_name, 'company_name' => null,
+                'phone_e164' => null, 'email' => null, 'address_line1' => '24 Temple Road', 'address_line2' => null,
+                'city' => 'Colombo', 'vat_number' => null,
+            ],
+            'lines' => [[
+                'kind' => 'product', 'sku' => 'PVC-PANEL', 'description' => 'PVC ceiling panel', 'sale_unit' => 'panel',
+                'qty' => 1, 'unit_price_cents' => 125000, 'line_total_cents' => 125000, 'sort_order' => 0,
+            ]],
             'subtotal_cents' => 125000,
             'total_cents' => 125000,
             'issued_on' => now()->toDateString(),

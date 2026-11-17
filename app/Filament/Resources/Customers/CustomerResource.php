@@ -10,6 +10,7 @@ use App\Filament\Resources\Customers\Pages\CreateCustomer;
 use App\Filament\Resources\Customers\Pages\EditCustomer;
 use App\Filament\Resources\Customers\Pages\ListCustomers;
 use App\Filament\Resources\Customers\Pages\ViewCustomer;
+use App\Filament\Resources\Customers\RelationManagers\InvoicesRelationManager;
 use App\Filament\Resources\Customers\RelationManagers\OrdersRelationManager;
 use App\Filament\Resources\Customers\RelationManagers\PaymentsRelationManager;
 use App\Filament\Support\CustomerDeleteAction;
@@ -120,7 +121,7 @@ class CustomerResource extends Resource
 
     public static function getRelations(): array
     {
-        return [OrdersRelationManager::class, PaymentsRelationManager::class];
+        return [OrdersRelationManager::class, PaymentsRelationManager::class, InvoicesRelationManager::class];
     }
 
     public static function getPages(): array

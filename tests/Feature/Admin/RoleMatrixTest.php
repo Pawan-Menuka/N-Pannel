@@ -43,6 +43,12 @@ dataset('role matrix', function () {
     }
 });
 
+it('allows only active sales and admin staff to void invoices', function (UserRole $role, bool $active) {
+    $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
+
+    expect($user->can('void', new Models\Invoice))->toBe($active && in_array($role, [UserRole::Admin, UserRole::Sales], true));
+})->with(UserRole::cases())->with([true, false]);
+
 it('limits fulfilment abilities to active sales staff and completion overrides to admins', function (UserRole $role, bool $active) {
     $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
     $order = new Models\Order;
