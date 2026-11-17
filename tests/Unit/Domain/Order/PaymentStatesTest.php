@@ -1,0 +1,29 @@
+<?php
+
+use App\Domain\Order\AmountTooLarge;
+use App\Domain\Order\PaymentStates;
+use App\Enums\PaymentState;
+
+it('derives payment state from net paid and refund history', function (int $total, int $net, int $refunded, PaymentState $expected) {
+    expect(PaymentStates::derive($total, $net, $refunded))->toBe($expected);
+})->with([
+    'unpaid' => [10000, 0, 0, PaymentState::Unpaid],
+    'negative unpaid' => [10000, -1, 0, PaymentState::Unpaid],
+    'partial' => [10000, 5000, 0, PaymentState::PartiallyPaid],
+    'paid' => [10000, 10000, 0, PaymentState::Paid],
+    'late overpayment' => [10000, 12000, 0, PaymentState::Paid],
+    'fully refunded' => [10000, 0, 10000, PaymentState::Refunded],
+    'negative refunded' => [10000, -1, 10000, PaymentState::Refunded],
+    'partly refunded' => [10000, 6000, 4000, PaymentState::PartiallyPaid],
+    'zero total' => [0, 0, 0, PaymentState::Paid],
+    'positive net on zero total' => [0, 100, 0, PaymentState::Paid],
+    'refunded zero total' => [0, 0, 100, PaymentState::Refunded],
+]);
+
+it('floors the balance at zero', function (int $total, int $net, int $expected) {
+    expect(PaymentStates::balance($total, $net))->toBe($expected);
+})->with([[10000, 0, 10000], [10000, 4000, 6000], [10000, 10000, 0], [10000, 12000, 0], [10000, -100, 10100]]);
+
+it('refuses balance overflow', function () {
+    expect(fn () => PaymentStates::balance(PHP_INT_MAX, -1))->toThrow(AmountTooLarge::class);
+});

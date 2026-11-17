@@ -12,8 +12,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-3 | Products and CSV import | done (PR #4 merged) | `feature/is-3-products` | See IS-3 log |
 | IS-4 | Stock core | done (PR #5 merged) | `feature/is-4-stock` | See IS-4 log |
 | IS-5 | Suppliers and goods received | done (PR #6 merged) | `feature/is-5-purchasing` | See IS-5 log |
-| IS-6 | Customers | done locally; CI runs on the PR | `feature/is-6-customers` | See IS-6 log |
-| IS-7 | Order core, payments | not started | | |
+| IS-6 | Customers | done (PR #7 merged) | `feature/is-6-customers` | See IS-6 log |
+| IS-7 | Order core, payments | done locally; CI runs on the PR | `feature/is-7-orders` | See IS-7 log |
 | IS-8 | Counter sales | not started | | |
 | IS-9 | Quotes | not started | | |
 | IS-10 | Fulfilment, order screen | not started | | |
@@ -25,6 +25,68 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-7 log
+
+**Built (by Codex, verified 17 Nov 2026).** This phase has no UI; later phases call these actions.
+- **Domain** (`app/Domain/Order`, pure PHP):
+  - `Totals` and `OrderTotals`:
+    - Product, labour and other lines make the subtotal. Delivery is separate.
+    - Discount lines are entered as positive amounts and stored as negatives.
+    - The total can't be below 0, and the advance must be between 0 and the total. Quantity is 1 to 1,000,000 and unit price Rs 0 to Rs 100M, with overflow guards.
+  - `StateMachine` covers the complete table in blueprint 3.7, including the Release 3 rows, and refuses every other pair with `InvalidTransition`.
+    - `allowedFrom()` lists the moves allowed from a status, for IS-10's "Move to…" button.
+    - It returns `TransitionEffects`:
+      - `reduceStock` when moving to confirmed.
+      - `reserveStock` when moving to placed.
+      - `releaseStock` when cancelling an order that is placed, confirmed or processing, or when a placed order expires.
+      - `flagNeedsAttention` when cancelling a ready-for-collection or dispatched order.
+      - `requiresSettledBalance` when moving to completed. The admin override arrives in IS-10.
+      - `requiresNothingPaid` when a placed order expires.
+      - `requiresCancelReason`: free text for early cancellations; for late ones, only `delivery_refused`, `not_collected` or `damaged_in_transit`.
+  - `PaymentStates`:
+    - Payment state: Refunded if nothing is left paid after a refund; Paid when the net paid covers the total (including a zero total); Unpaid when nothing is paid; Partially paid otherwise.
+    - Balance owed: total minus net paid, never below 0.
+- **Actions:**
+  - `Orders/RecalculateOrderPayments`: needs a transaction and the order lock. `paid_cents` is the **net** amount (payments minus refunds), and `refunded_cents` is the total refunded.
+  - `Orders/RecordOrderEvent`: writes the order's history entries.
+  - `Payments/RecordPayment` (admin and sales):
+    - Cash, bank transfer, card or cheque. PayHere is refused because the gateway records it. Bank transfer and cheque need a reference.
+    - Locks the order row first. The amount can't be more than the balance.
+    - Gives the payment an `RCP-YYYY-NNNNN` receipt number inside the same transaction, so a failed payment leaves no gap in the numbers.
+    - Recalculates the paid amount and payment state, and writes a history entry.
+    - A payment on a cancelled or expired order is still recorded. The order is flagged needs-attention, the note is added to any existing note while it fits in 255 characters, and an Attention entry is added to the history.
+  - `Payments/RecordRefund` (a new `refund` ability for admin and sales):
+    - A note is required. There is no receipt number.
+    - Cancelled or expired order: up to the net amount paid.
+    - Active order: only an overpayment can be refunded, unless the refund is tied to a return (`SalesReturn`). A return-linked refund can be up to the net paid, and IS-12 must lower the amount owed in the same transaction.
+- `Order::balanceCents()` is fixed: it now uses the net `paid_cents`, so refunds aren't subtracted twice.
+- `Order` and `Payment` have enum `@property` annotations.
+- **Lock-ordering rule:** the order row first, then the document sequence and stock levels (ascending variant). IS-8 to IS-12 must follow this.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1027/1027 (4614 assertions). The state-machine test checks every from/to pair.
+- **Two-connection Postgres tests:**
+  - Receipt numbers wait on the sequence lock, come out in order, and leave no gap after a rollback.
+  - A payment or refund racing another on the same order times out on the order lock, then is refused because the balance has changed.
+- **Lock check:** I removed `lockForUpdate` from `RecordPayment`, and the concurrency test failed as it should. The file was then restored.
+
+**Fixed after review** (independent Claude review subagent):
+- A refund on an active order made the customer owe money again.
+- No test covered racing payments, so removing the lock broke nothing.
+- An expiry was allowed on a part-paid placed order.
+- A late payment overwrote the existing attention note.
+- A zero-total order showed as unpaid.
+- Larastan: the enum annotations were missing.
+- A refund test had its length arithmetic wrong.
+
+**Carried forward:**
+- **IS-8, IS-9 and IS-12:** any change to `total_cents` must call `RecalculateOrderPayments` under the order lock, so the payment state and balance stay in step.
+- **IS-10:** add the admin-only override for completing an order with an unpaid balance (an ability such as `completeOverride`, plus a reason), and check `requiresNothingPaid` in the sweep.
+- **IS-12:** a refund tied to a return must lower the amount owed (by credit note or return value) in the same transaction.
+
+**Note:** the machine restarted overnight. Docker had to be started again (`docker compose up -d`) before the tests could run.
 
 ## IS-6 log
 
