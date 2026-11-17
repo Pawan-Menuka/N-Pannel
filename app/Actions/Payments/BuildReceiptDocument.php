@@ -24,6 +24,7 @@ final class BuildReceiptDocument
             $payment->method->getLabel(), $payment->reference, Lkr::formatWithCurrency($payment->amount_cents),
             Lkr::formatWithCurrency($order->total_cents), Lkr::formatWithCurrency($order->paid_cents), Lkr::formatWithCurrency($order->balanceCents()),
             $this->documents->invoice_footer,
+            $order->returned_cents > 0 ? Lkr::formatWithCurrency($order->returned_cents) : null,
         );
     }
 }

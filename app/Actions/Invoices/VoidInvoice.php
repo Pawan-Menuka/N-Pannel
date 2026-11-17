@@ -37,6 +37,9 @@ final class VoidInvoice
 
     private function validate(Invoice $invoice, string $reason): void
     {
+        if ($invoice->creditNotes()->exists()) {
+            throw ValidationException::withMessages(['invoice' => 'This invoice has credit notes and cannot be voided.']);
+        }
         if ($invoice->status !== DocumentStatus::Issued) {
             throw ValidationException::withMessages(['status' => 'This invoice is already void.']);
         }

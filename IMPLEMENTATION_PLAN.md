@@ -17,14 +17,80 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-8 | Counter sales | done (PR #9 merged) | `feature/is-8-counter-sales` | See IS-8 log |
 | IS-9 | Quotes | done (PR #10 merged) | `feature/is-9-quotes` | See IS-9 log |
 | IS-10 | Fulfilment, order screen | done (PR #11 merged) | `feature/is-10-fulfilment` | See IS-10 log |
-| IS-11 | Invoices and receipts | done locally, pending accountant layout approval; CI runs on the PR | `feature/is-11-invoices` | See IS-11 log |
-| IS-12 | Returns and credit notes | not started | | |
+| IS-11 | Invoices and receipts | done (PR #12 merged); accountant layout approval pending | `feature/is-11-invoices` | See IS-11 log |
+| IS-12 | Returns and credit notes | done locally; CI runs on the PR | `feature/is-12-returns` | See IS-12 log |
 | IS-13 | Dashboard and reports | not started | | |
 | IS-14 | Hardening and staging deploy | not started | | |
 
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-12 log
+
+**Built (by Codex, verified 18 Nov 2026):**
+- **How returns affect money:** a return lowers what is owed **without changing the order total**, because the invoice is a fixed record.
+  - New column `orders.returned_cents`, added by migration `2026_11_18_000012`, with a database CHECK that `returned_cents <= total_cents`.
+  - Effective total = total − returned. It's used by the payment state, `Order::balanceCents()` and `RecalculateOrderPayments`, and by the customer's balance (`Domain/Customers/Balance`, `withBalance()`, `owingMoney()`).
+  - A fully returned order that was never paid shows Unpaid. A zero-total order still shows Paid.
+- **Domain:** `Returns/ReturnCalculator` (pure PHP):
+  - Product lines only, quantity up to sold minus already returned per line.
+  - The unit value defaults to and is capped at the **discounted** price: line price × (subtotal − discount) ÷ subtotal, rounded down. Delivery isn't discounted.
+  - The return total must be above 0, and total returns can't exceed the order total.
+  - Works out how much can be refunded: max(0, net paid − effective total after this return).
+- **`Actions/Returns/CreateReturn`** (admin and sales; returnable statuses are confirmed through completed):
+  - **Locks:** customer (shared) → order. Quantities are re-read under the lock.
+  - **Records:** the return and its lines, and `returned_cents`.
+  - **Credit note:** when the order has an active invoice, issues a **`CRN-` credit note** (`IssueCreditNote`) with VAT at the invoice's rate and the invoice's copy of the customer details.
+  - **Stock:** restock lines go back to stock in ascending variant order, with reason `return_restock` and the return as source. Damaged lines don't.
+  - **Money:** payments are recalculated, then the optional refund is recorded through `RecordRefund` linked to the return, capped at the same amount. An event is added.
+- **Invoices issued after a return:** `IssueInvoice` now also issues credit notes, in the same transaction, for earlier returns that don't have one yet. So "return first, invoice later" and "void, return, re-issue" both reconcile: invoice total − credit notes − paid = balance.
+- **Returns are final in this slice:**
+  - Returns, their lines and credit notes can't be changed or deleted.
+  - **An invoice with credit notes can't be voided.**
+  - **An order with returns can't be cancelled.** This settles the IS-10 note about early cancels releasing stock twice.
+- **Documents:**
+  - **Credit note print page** `admin/credit-notes/{id}/print`: "CREDIT NOTE", against which invoice, seller VAT number, lines, total credit, VAT line and reason.
+  - **The invoice page** lists its credit notes and gains a "Returned" line.
+  - **The receipt page** gains a "Returned" line, so the totals add up.
+- **Filament:**
+  - **"Record return" on the order:** pre-fills every returnable line (sold and returnable counts, quantity, back to stock or damaged, value), plus the reason, a note, and a refund section that shows "Up to Rs X can be refunded" as you type.
+  - **On the order page:** a Returns section (lines, credit note, Print credit note) and a "Returned" amount in the totals.
+  - **On the invoice:** a list of its credit notes.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1795/1795 (8337 assertions).
+- **Two-connection Postgres tests:** two returns racing for the last returnable unit (one wins), and a return racing a payment.
+- **The whole-slice scenario from this plan is one feature test:** receive 50, sell 12 with part payment, quote 30 at trade and accept, record the balance, invoice, then return 2 (one damaged) with a credit note. Final stock is **9** and the document numbers are consecutive.
+- The migration runs, rolls back and runs again.
+- **Browser, on the dev database:**
+  - Q-5Q4KVC got a new invoice, **INV-2026-00002** (00001 was void).
+  - "Record return": 1 × TEE-3000 back to stock. The helper read "Up to Rs 1,750.00 can be refunded", and I refunded Rs 1,750 in cash.
+  - Results: returned Rs 1,750, net paid Rs 7,000, still Paid, balance 0. TEE-3000 went from 18 to 19 (`return_restock`). **CRN-2026-00001** was issued for Rs 1,750 with VAT Rs 194.44 at 12.5%.
+  - The credit note print page showed every field correctly.
+
+**Fixed after the checks:**
+- **Found by the tests:**
+  - Larastan nullsafe warnings.
+  - Snapshot tests compared `jsonb` key order.
+  - A pop-up test checked the page instead of the pop-up.
+- **Found by the review subagent:**
+  - **High:** an invoice issued after a return showed the full total with no credit note.
+  - Returns on discounted orders were credited at full price.
+  - A fully returned, unpaid order showed "Paid".
+  - The receipt's figures didn't add up after a return.
+  - Zero-value returns used up a CRN number.
+  - There was no database check on `returned_cents`.
+
+**Carried forward:**
+- **For your accountant:**
+  - The credit note layout needs their approval too, along with the invoice and receipt.
+  - VAT on several partial credit notes is rounded separately, so it can differ from the invoice's VAT by a cent.
+- **Returns can't be undone in this slice.** A wrong return has to be corrected by hand, for example with a stock adjustment and a new sale.
+- **IS-13 reports must use the effective total** (total − returned) for sales and money owed, and count credit notes.
+
+**Dev data left by the check:** INV-2026-00002 (issued), CRN-2026-00001, the return on Q-5Q4KVC with its Rs 1,750 refund, and TEE-3000 at 19. The test VAT settings from IS-11 are still set.
 
 ## IS-11 log
 

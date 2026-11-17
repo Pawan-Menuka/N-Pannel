@@ -9,6 +9,7 @@ final readonly class InvoiceDocument
      * @param  array{name: string, company_name: ?string, phone_e164: ?string, email: ?string, address_line1: ?string, address_line2: ?string, city: ?string, vat_number: ?string}  $buyer
      * @param  list<array{description: string, sku: ?string, qty: int, saleUnit: ?string, unitPrice: string, lineTotal: string}>  $lines
      * @param  list<array{receiptNumber: ?string, date: string, method: string, amount: string, receiptUrl: ?string}>  $payments
+     * @param  list<array{number: string, date: string, amount: string}>  $creditNotes
      * @param  array{account_name: string, bank_name: string, branch: string, account_number: string}|null  $bank
      */
     public function __construct(
@@ -31,5 +32,7 @@ final readonly class InvoiceDocument
         public ?array $bank,
         public string $footer,
         public ?string $voidNotice,
+        public array $creditNotes = [],
+        public ?string $returned = null,
     ) {}
 }

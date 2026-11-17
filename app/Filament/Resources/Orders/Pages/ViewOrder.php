@@ -6,6 +6,7 @@ use App\Enums\OrderStatus;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Support\HasOrderActions;
 use App\Filament\Support\HasQuoteActions;
+use App\Filament\Support\HasReturnAction;
 use App\Models\Order;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\ViewRecord;
@@ -15,6 +16,7 @@ class ViewOrder extends ViewRecord
 {
     use HasOrderActions;
     use HasQuoteActions;
+    use HasReturnAction;
 
     protected static string $resource = OrderResource::class;
 
@@ -26,6 +28,7 @@ class ViewOrder extends ViewRecord
                 ->url(fn (): string => OrderResource::getUrl('quote', ['record' => $this->getRecord()])),
             ...$this->quoteActions(),
             ...$this->orderActions(),
+            $this->recordReturnAction(),
         ];
     }
 

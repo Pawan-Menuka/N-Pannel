@@ -19,6 +19,7 @@
     </section>
     <table class="totals">
         <tr><th>Order total</th><td class="number">{{ $document->total }}</td></tr>
+        @if ($document->returned)<tr><th>Returned</th><td class="number">{{ $document->returned }}</td></tr>@endif
         <tr><th>Amount paid</th><td class="number">{{ $document->paid }}</td></tr>
         <tr><th>Balance due</th><td class="number">{{ $document->balance }}</td></tr>
     </table>

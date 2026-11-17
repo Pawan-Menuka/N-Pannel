@@ -9,6 +9,7 @@ use App\Enums\DocumentStatus;
 use App\Enums\OrderLineKind;
 use App\Enums\PaymentKind;
 use App\Enums\PaymentStatus;
+use App\Models\CreditNote;
 use App\Models\Invoice;
 use App\Models\Order;
 use App\Settings\BankSettings;
@@ -56,6 +57,10 @@ final class BuildInvoiceDocument
             $payments, Lkr::formatWithCurrency($order->paid_cents), Lkr::formatWithCurrency($order->balanceCents()),
             $bank, $this->documents->invoice_footer,
             $invoice->status === DocumentStatus::Void ? 'VOID — '.$invoice->void_reason : null,
+            $invoice->creditNotes()->orderBy('issued_on')->orderBy('id')->get()->map(fn (CreditNote $credit): array => [
+                'number' => $credit->number, 'date' => $credit->issued_on?->format('d M Y') ?? '', 'amount' => Lkr::formatWithCurrency($credit->total_cents),
+            ])->all(),
+            $order->returned_cents > 0 ? Lkr::formatWithCurrency($order->returned_cents) : null,
         );
     }
 }

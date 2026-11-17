@@ -7,12 +7,15 @@ use App\Enums\PaymentState;
 
 final class PaymentStates
 {
-    public static function derive(int $totalCents, int $netPaidCents, int $refundedCents): PaymentState
+    public static function derive(int $effectiveTotalCents, int $netPaidCents, int $refundedCents, ?int $originalTotalCents = null): PaymentState
     {
         if ($netPaidCents <= 0 && $refundedCents > 0) {
             return PaymentState::Refunded;
         }
-        if ($netPaidCents >= $totalCents) {
+        if (($originalTotalCents ?? $effectiveTotalCents) > 0 && $netPaidCents === 0 && $refundedCents === 0) {
+            return PaymentState::Unpaid;
+        }
+        if ($netPaidCents >= $effectiveTotalCents) {
             return PaymentState::Paid;
         }
         if ($netPaidCents <= 0) {
@@ -22,15 +25,15 @@ final class PaymentStates
         return PaymentState::PartiallyPaid;
     }
 
-    public static function balance(int $totalCents, int $netPaidCents, OrderStatus $status): int
+    public static function balance(int $effectiveTotalCents, int $netPaidCents, OrderStatus $status): int
     {
-        if (in_array($status, [OrderStatus::Cancelled, OrderStatus::Expired], true) || $netPaidCents >= $totalCents) {
+        if (in_array($status, [OrderStatus::Cancelled, OrderStatus::Expired], true) || $netPaidCents >= $effectiveTotalCents) {
             return 0;
         }
-        if ($netPaidCents < 0 && $totalCents > PHP_INT_MAX + $netPaidCents) {
+        if ($netPaidCents < 0 && $effectiveTotalCents > PHP_INT_MAX + $netPaidCents) {
             throw new AmountTooLarge('The order balance is too large.');
         }
 
-        return $totalCents - $netPaidCents;
+        return $effectiveTotalCents - $netPaidCents;
     }
 }

@@ -4,6 +4,7 @@ namespace App\Actions\Invoices;
 
 use App\Actions\Documents\NextDocumentNumber;
 use App\Actions\Orders\RecordOrderEvent;
+use App\Actions\Returns\IssueCreditNote;
 use App\Domain\Invoice\InvoiceEligibility;
 use App\Domain\Invoice\Tax;
 use App\Domain\Invoice\TaxRegistration;
@@ -32,6 +33,7 @@ final class IssueInvoice
         private BuildInvoiceLink $links,
         private DocumentSettings $documents,
         private TaxSettings $tax,
+        private IssueCreditNote $creditNotes,
     ) {}
 
     public function handle(Order $order, ?CarbonImmutable $dueOn, User $by): IssuedInvoice
@@ -70,6 +72,9 @@ final class IssueInvoice
                 'seller_vat_number' => $isTaxInvoice ? $sellerVatNumber : null,
                 'issued_on' => $issuedOn, 'due_on' => $dueDate, 'issued_by_id' => $by->id,
             ]);
+            foreach ($locked->salesReturns()->doesntHave('creditNote')->orderBy('id')->get() as $salesReturn) {
+                $this->creditNotes->handle($invoice, $salesReturn, $by);
+            }
             $locked->update(['tax_cents' => $taxCents]);
             $token = $this->tokens->handle($invoice);
             $this->events->handle($locked, OrderEventType::Note, note: 'Invoice '.$invoice->number.' issued', by: $by);

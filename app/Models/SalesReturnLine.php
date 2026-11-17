@@ -7,12 +7,36 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use LogicException;
 
 #[Fillable(['sales_return_id', 'order_line_id', 'variant_id', 'qty', 'restock', 'unit_price_cents', 'line_total_cents'])]
 class SalesReturnLine extends Model
 {
     /** @use HasFactory<SalesReturnLineFactory> */
     use HasFactory;
+
+    /** @var array<class-string<Model>> */
+    protected static $ignoreOnTouch = [self::class];
+
+    /** @param array<string>|string|null $attribute */
+    public function touch(mixed $attribute = null): bool
+    {
+        if ($this->exists) {
+            throw new LogicException('Return lines cannot be changed.');
+        }
+
+        return parent::touch($attribute);
+    }
+
+    protected static function booted(): void
+    {
+        static::updating(function (SalesReturnLine $record): void {
+            throw new LogicException('Return lines cannot be changed.');
+        });
+        static::deleting(function (SalesReturnLine $record): void {
+            throw new LogicException('Return lines cannot be deleted.');
+        });
+    }
 
     /** @var array<string, mixed> */
     protected $attributes = [

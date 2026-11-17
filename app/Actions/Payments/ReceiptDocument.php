@@ -19,5 +19,6 @@ final readonly class ReceiptDocument
         public string $paid,
         public string $balance,
         public string $footer,
+        public ?string $returned = null,
     ) {}
 }
