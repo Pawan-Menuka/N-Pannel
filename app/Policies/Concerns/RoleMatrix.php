@@ -64,7 +64,7 @@ class RoleMatrix
         Models\OrderLine::class => self::Sales,
         Models\QuoteSnapshot::class => self::SalesReadOnly,
         Models\OrderEvent::class => self::SalesReadOnly,
-        Models\Payment::class => self::Financial,
+        Models\Payment::class => self::Financial + ['refund' => ['admin', 'sales']],
         Models\Invoice::class => self::Financial,
         Models\CreditNote::class => self::Financial,
         Models\SalesReturn::class => self::Financial,

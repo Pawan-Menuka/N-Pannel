@@ -10,16 +10,16 @@ use App\Models\Product;
 use App\Models\Variant;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
-it('calculates the balance including refunds', function () {
+it('calculates the balance from payments already net of refunds', function () {
     $order = Order::factory()->make(['total_cents' => 10000, 'paid_cents' => 4000, 'refunded_cents' => 1000]);
 
-    expect($order->balanceCents())->toBe(7000);
+    expect($order->balanceCents())->toBe(6000);
 });
 
-it('preserves a negative balance as customer credit', function () {
+it('floors an overpaid order balance at zero', function () {
     $order = Order::factory()->make(['total_cents' => 10000, 'paid_cents' => 12000, 'refunded_cents' => 0]);
 
-    expect($order->balanceCents())->toBe(-2000);
+    expect($order->balanceCents())->toBe(0);
 });
 
 it('finds the issued invoice and ignores void invoices', function () {

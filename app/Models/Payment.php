@@ -13,6 +13,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Spatie\Activitylog\Models\Concerns\LogsActivity;
 use Spatie\Activitylog\Support\LogOptions;
 
+/**
+ * @property PaymentKind $kind
+ * @property PaymentMethod $method
+ * @property PaymentStatus $status
+ */
 #[Fillable(['order_id', 'kind', 'method', 'status', 'amount_cents', 'reference', 'receipt_number', 'note', 'created_by_id', 'confirmed_by_id', 'confirmed_at', 'sales_return_id'])]
 class Payment extends Model
 {
