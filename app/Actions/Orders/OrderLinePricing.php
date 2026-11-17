@@ -5,7 +5,7 @@ namespace App\Actions\Orders;
 use App\Enums\PriceTier;
 use App\Models\Variant;
 
-final class CounterSalePricing
+final class OrderLinePricing
 {
     public function handle(Variant $variant, PriceTier $tier): int
     {

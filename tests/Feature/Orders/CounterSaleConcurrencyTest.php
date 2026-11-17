@@ -1,7 +1,7 @@
 <?php
 
-use App\Actions\Orders\CounterSaleLine;
 use App\Actions\Orders\CreateCounterSale;
+use App\Actions\Orders\OrderLineInput;
 use App\Enums\OrderLineKind;
 use App\Models\Customer;
 use App\Models\Location;
@@ -60,7 +60,7 @@ it('serializes two counter sales of the last unit and refuses the loser without 
         DB::purge('sale_peer');
     });
     $owner = DB::connection('sale_owner');
-    $lines = [new CounterSaleLine(OrderLineKind::Product, $variant->id, null, 1, null)];
+    $lines = [new OrderLineInput(OrderLineKind::Product, $variant->id, null, 1, null)];
     $sell = fn (): Order => Model::withoutEvents(fn (): Order => app(CreateCounterSale::class)->handle($customer, $lines, $by));
     try {
         DB::setDefaultConnection('sale_owner');

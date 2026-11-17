@@ -11,19 +11,20 @@ use App\Models\Variant;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\ValidationException;
 
-final class PrepareCounterSaleLines
+/** @phpstan-type PreparedOrderLine array{kind: OrderLineKind, variant: Variant|null, description: string, qty: int, unitPriceCents: int, lineTotalCents: int} */
+final class PrepareOrderLines
 {
-    public function __construct(private CounterSalePricing $pricing) {}
+    public function __construct(private OrderLinePricing $pricing) {}
 
     /**
-     * @param  list<CounterSaleLine>  $lines
+     * @param  list<OrderLineInput>  $lines
      * @param  Collection<int, Variant>|null  $variants
-     * @return list<array{kind: OrderLineKind, variant: Variant|null, description: string, qty: int, unitPriceCents: int, lineTotalCents: int}>
+     * @return list<PreparedOrderLine>
      */
-    public function handle(Customer $customer, array $lines, ?Collection $variants = null): array
+    public function handle(Customer $customer, array $lines, ?Collection $variants = null, bool $allowEmpty = false): array
     {
-        if ($lines === [] || count($lines) > 200) {
-            throw ValidationException::withMessages(['lines' => 'Enter between 1 and 200 lines, including at least one product.']);
+        if ((! $allowEmpty && $lines === []) || count($lines) > 200) {
+            throw ValidationException::withMessages(['lines' => $allowEmpty ? 'Enter at most 200 lines.' : 'Enter between 1 and 200 lines, including at least one product.']);
         }
         $ids = [];
         foreach ($lines as $line) {
@@ -31,7 +32,7 @@ final class PrepareCounterSaleLines
                 $ids[] = $line->variantId;
             }
         }
-        if ($ids === []) {
+        if (! $allowEmpty && $ids === []) {
             throw ValidationException::withMessages(['lines' => 'At least one product line is required.']);
         }
         $variants ??= Variant::query()->with('product')->whereIn('id', $ids)->get()->keyBy('id');

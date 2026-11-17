@@ -4,7 +4,7 @@ namespace App\Actions\Orders;
 
 use App\Enums\OrderLineKind;
 
-final readonly class CounterSaleLine
+final readonly class OrderLineInput
 {
     public function __construct(
         public OrderLineKind $kind,

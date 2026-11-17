@@ -15,8 +15,12 @@ final class PurchasingValidation
                 $messages[] = $message;
             }
         }
-        Notification::make()->danger()->title($exception->validator->errors()->first())
-            ->body(implode("\n", array_map(fn (string $message): string => e($message), array_slice($messages, 0, 10))))->send();
+        $notification = Notification::make()->danger()->title($exception->validator->errors()->first());
+        $remaining = array_slice($messages, 1, 10);
+        if ($remaining !== []) {
+            $notification->body(implode("\n", array_map(fn (string $message): string => e($message), $remaining)));
+        }
+        $notification->send();
     }
 
     public static function forForm(ValidationException $exception, string $path = 'data'): ValidationException

@@ -6,6 +6,15 @@ use App\Enums\OrderLineKind;
 
 final class Totals
 {
+    public static function percentOf(int $totalCents, int $percent): int
+    {
+        if ($totalCents < 0 || $percent < 0 || $percent > 100) {
+            throw new InvalidOrderTotals('The total must not be negative and the percentage must be between 0 and 100.');
+        }
+
+        return intdiv($totalCents, 100) * $percent + intdiv(($totalCents % 100) * $percent + 50, 100);
+    }
+
     public static function lineTotal(OrderLineKind $kind, int $qty, int $unitPriceCents): int
     {
         if ($qty < 1 || $qty > 1000000 || $unitPriceCents < 0 || $unitPriceCents > 10000000000) {

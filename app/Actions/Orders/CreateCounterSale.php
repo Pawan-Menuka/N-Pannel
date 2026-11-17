@@ -3,11 +3,9 @@
 namespace App\Actions\Orders;
 
 use App\Actions\Payments\RecordPayment;
-use App\Actions\Stock\ReserveStock;
 use App\Domain\Order\AmountTooLarge;
 use App\Domain\Order\InvalidOrderTotals;
 use App\Domain\Order\Totals;
-use App\Domain\Stock\InsufficientStock;
 use App\Domain\Stock\StockLimitExceeded;
 use App\Enums\OrderEventType;
 use App\Enums\OrderSource;
@@ -18,8 +16,6 @@ use App\Models\Customer;
 use App\Models\Location;
 use App\Models\Order;
 use App\Models\User;
-use App\Models\Variant;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -31,15 +27,15 @@ use Illuminate\Validation\ValidationException;
 final class CreateCounterSale
 {
     public function __construct(
-        private OrderReferenceGenerator $references,
-        private PrepareCounterSaleLines $prepareLines,
+        private InsertOrderWithReference $insertOrder,
+        private PrepareOrderLines $prepareLines,
         private RecalculateOrderPayments $payments,
         private RecordOrderEvent $events,
         private RecordPayment $recordPayment,
-        private ReserveStock $stock,
+        private ReduceOrderStock $stock,
     ) {}
 
-    /** @param list<CounterSaleLine> $lines */
+    /** @param list<OrderLineInput> $lines */
     public function handle(Customer $customer, array $lines, User $by, ?CounterSalePayment $payment = null, ?string $stockOverrideReason = null): Order
     {
         $customer = $this->validateCustomer($customer->fresh());
@@ -58,20 +54,9 @@ final class CreateCounterSale
                 $customer = $this->validateCustomer(Customer::query()->whereKey($customer->id)->sharedLock()->first());
                 $prepared = $this->prepareLines->handle($customer, $lines);
                 $totalLines = [];
-                /** @var array<int, array{variant: Variant, quantities: non-empty-list<int>}> $stockLines */
-                $stockLines = [];
                 foreach ($prepared as $line) {
                     $totalLines[] = ['kind' => $line['kind'], 'qty' => $line['qty'], 'unitPriceCents' => $line['unitPriceCents']];
-                    $variant = $line['variant'];
-                    if ($variant !== null && $variant->track_stock) {
-                        if (isset($stockLines[$variant->id])) {
-                            $stockLines[$variant->id]['quantities'][] = $line['qty'];
-                        } else {
-                            $stockLines[$variant->id] = ['variant' => $variant, 'quantities' => [$line['qty']]];
-                        }
-                    }
                 }
-                ksort($stockLines, SORT_NUMERIC);
                 try {
                     $totals = Totals::calculate($totalLines);
                 } catch (InvalidOrderTotals|AmountTooLarge $exception) {
@@ -84,7 +69,7 @@ final class CreateCounterSale
                     throw ValidationException::withMessages(['payment.amount' => 'The payment must be between Rs 0.01 and the order total.']);
                 }
                 $location = Location::default();
-                $order = $this->insertOrder([
+                $order = $this->insertOrder->handle('O', [
                     'source' => OrderSource::Counter, 'status' => OrderStatus::Confirmed,
                     'confirmed_at' => now(), 'payment_state' => PaymentState::Unpaid,
                     'location_id' => $location->id, 'price_tier' => $customer->price_tier,
@@ -117,24 +102,7 @@ final class CreateCounterSale
                         throw ValidationException::withMessages($errors);
                     }
                 }
-                $shortages = [];
-                $overrides = [];
-                foreach ($stockLines as $line) {
-                    $variant = $line['variant'];
-                    try {
-                        $this->stock->handleAggregated($variant, $line['quantities'], StockReason::CounterSale, $order, $by, location: $location);
-                    } catch (InsufficientStock $exception) {
-                        if ($stockOverrideReason === null) {
-                            $shortages[] = $variant->sku.': wanted '.$exception->requested.', in stock '.$exception->available;
-                        } else {
-                            $this->stock->handleAggregated($variant, $line['quantities'], StockReason::CounterSale, $order, $by, $stockOverrideReason, $location);
-                            $overrides[] = $variant->sku;
-                        }
-                    }
-                }
-                if ($shortages !== []) {
-                    throw ValidationException::withMessages(['lines' => 'Stock is short. '.implode('; ', $shortages)]);
-                }
+                $overrides = $this->stock->handle($order, StockReason::CounterSale, $by, $stockOverrideReason);
                 if ($overrides !== []) {
                     $this->events->handle($order, OrderEventType::Note, note: mb_substr('Stock override: '.$stockOverrideReason.' — '.implode(', ', $overrides), 0, 255), by: $by);
                 }
@@ -159,22 +127,5 @@ final class CreateCounterSale
         }
 
         return $customer;
-    }
-
-    /** @param array<string, mixed> $attributes */
-    private function insertOrder(array $attributes): Order
-    {
-        for ($attempt = 0; $attempt < 5; $attempt++) {
-            $reference = $this->references->next('O');
-            try {
-                return DB::transaction(fn (): Order => Order::query()->create(['reference' => $reference, ...$attributes]));
-            } catch (UniqueConstraintViolationException $exception) {
-                if (! Order::query()->where('reference', $reference)->exists()) {
-                    throw $exception;
-                }
-            }
-        }
-
-        throw ValidationException::withMessages(['lines' => 'Could not allocate a unique order reference. Please try again.']);
     }
 }

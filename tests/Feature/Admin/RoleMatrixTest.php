@@ -112,6 +112,15 @@ it('allows only active sales and admin staff to override counter sale stock', fu
         ->toBe($active && in_array($role, [UserRole::Admin, UserRole::Sales], true));
 })->with(UserRole::cases())->with([true, false]);
 
+it('allows only active sales and admin staff to send and accept quotes', function (UserRole $role, bool $active) {
+    $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
+    $quote = new Models\Order;
+    $allowed = $active && in_array($role, [UserRole::Admin, UserRole::Sales], true);
+
+    expect($user->can('send', $quote))->toBe($allowed);
+    expect($user->can('accept', $quote))->toBe($allowed);
+})->with(UserRole::cases())->with([true, false]);
+
 it('limits receipt posting voiding and override abilities by role status and active flag', function (UserRole $role, bool $active, GoodsReceiptStatus $status) {
     $user = Models\User::factory()->make(['role' => $role, 'is_active' => $active]);
     $receipt = new Models\GoodsReceipt(['status' => $status]);

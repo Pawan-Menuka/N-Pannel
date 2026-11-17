@@ -14,8 +14,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-5 | Suppliers and goods received | done (PR #6 merged) | `feature/is-5-purchasing` | See IS-5 log |
 | IS-6 | Customers | done (PR #7 merged) | `feature/is-6-customers` | See IS-6 log |
 | IS-7 | Order core, payments | done (PR #8 merged) | `feature/is-7-orders` | See IS-7 log |
-| IS-8 | Counter sales | done locally; CI runs on the PR | `feature/is-8-counter-sales` | See IS-8 log |
-| IS-9 | Quotes | not started | | |
+| IS-8 | Counter sales | done (PR #9 merged) | `feature/is-8-counter-sales` | See IS-8 log |
+| IS-9 | Quotes | done locally; CI runs on the PR | `feature/is-9-quotes` | See IS-9 log |
 | IS-10 | Fulfilment, order screen | not started | | |
 | IS-11 | Invoices and receipts | not started | | |
 | IS-12 | Returns and credit notes | not started | | |
@@ -25,6 +25,90 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-9 log
+
+**Built (by Codex in two parts, verified 17 Nov 2026):**
+- **How a quote works:**
+  - A quote is an order with status `quoted`, source `quote` and reference `Q-XXXXXX`.
+  - Until it is first sent, it is at revision 0 with no link (`token_hash` null). There is no draft status.
+  - A quote needs a real customer: the walk-in, merged and anonymised customers are refused.
+  - `valid_until` is the end of the chosen day (23:59:59) in Colombo, stored in the app timezone. The quote is expired after that second.
+- **Domain** (pure PHP):
+  - `QuoteValidity`, `QuoteMessage` (the WhatsApp text and the `wa.me` link), `QuoteLinesComparison` (has anything changed since the last send?).
+  - `Totals::percentOf()`, rounding half up, used for the default advance.
+- **Shared with counter sales** (IS-8 code renamed, with no change in behaviour):
+  - `OrderLineInput`, `OrderLinePricing`, `PrepareOrderLines`.
+  - `InsertOrderWithReference`: the reference is retried inside a savepoint.
+  - `ReduceOrderStock`: a normal attempt first, an override only for the short variants, ascending `variant_id`, and every shortage listed at once.
+- **Actions** (`app/Actions/Orders`):
+  - **`CreateQuote`:** validity defaults to today plus `QuoteSettings::validity_days`.
+  - **`SaveQuoteLines`:**
+    - Only while the quote is `quoted`. The status is checked before the Gate and again under the lock.
+    - The customer row is share-locked and re-checked first.
+    - Prices use the customer's tier. The advance must be between 0 and the total, exclusions are at most 2,000 characters, and the validity date can't be in the past.
+    - Lines are replaced, and payments are recalculated.
+  - **`SendQuote`** (a new `send` ability for admin and sales):
+    - Refused for an empty or expired quote, or an ineligible customer.
+    - Raises the revision and writes a `quote_snapshots` row.
+    - Rotates the token (`RotateOrderToken`): 64 hex characters, only the sha256 is stored, and the old link stops working.
+    - Returns the link, the WhatsApp text and the `wa.me` URL, and adds a "Quote sent (revision N)" event.
+  - **`AcceptQuoteByStaff`** (a new `accept` ability; the override needs `overrideStock`):
+    - Refused if the quote is not open, is expired, was never sent, has no product line, or **has changed since the last revision was sent**. All of this is checked before the Gate and again under the lock.
+    - Lock order: customer (shared) → order → stock, with reason `quote_accepted`.
+    - Sets status `confirmed`, `accepted_via` = staff, and adds the status event (plus an override event if used).
+    - Doesn't re-price. A variant deactivated after sending can still be accepted (a test covers this).
+  - **`SweepExpired`:** expires `quoted` orders past their validity, locking and re-checking each row. The `store:sweep` command runs **hourly**. Placed orders (online checkout, Release 3) are not handled in this slice.
+- **Printable quote** (English):
+  - `BuildQuoteDocument` builds it from the **snapshot**, not the live lines, so unsent edits never reach the customer.
+  - `resources/views/documents/quote.blade.php` is a plain standalone page with a print stylesheet (A4), a Print button, and notices for expired, withdrawn or accepted quotes. The "Reply on WhatsApp to accept" link appears only while the quote is open, and only when `BusinessSettings::whatsapp_digits` is set. The layout is deliberately neutral, ready for your own design.
+  - **Public link** `/q/{reference}/{token}` (throttled 30/min): a timing-safe token check, quotes only, always the latest revision, with `noindex`, `no-store` and `no-referrer` headers. Anything else returns 404.
+  - **Admin print** `/admin/orders/{order}/quotes/{revision}/print` sits in the panel's authenticated routes (sign-in and authenticator app) and needs `view` on the order. Any revision can be printed.
+- **Filament:**
+  - **Quotes and orders:**
+    - "New quote" (pick or add a customer), next to "New sale".
+    - **Quote editor** (`/admin/orders/{id}/quote`): the customer summary, the shared lines repeater with live totals, the advance with "Use default (50%)", exclusions and the validity date.
+    - **Get quote link:** saves first, then shows a pop-up with the copyable link, the WhatsApp text, "Open WhatsApp" and "Open quote". The link exists only in that pop-up and is never stored.
+    - **Mark accepted:** a note, plus the stock override reason for those allowed.
+    - **Print**, a **Revisions** list with a print button per revision, and "Edit quote" on the order page.
+  - **Shared pieces:** `CustomerPicker`, `OrderLinesRepeater`, `OrderLineForm`, `InteractsWithOrderLines` and `HasQuoteActions`. New sale now uses them too, and its tests didn't change.
+  - **Error messages** (`PurchasingValidation::notify`): a single error now shows once (title only) instead of as both title and body. This also affects goods receipts and stocktakes.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1288/1288 (5922 assertions).
+- **Two-connection Postgres tests:** accepting a quote while a counter sale takes the last unit, and accepting while the sweep runs, each give exactly one outcome, and stock never goes negative.
+- No new migrations.
+- **Browser, on the dev database:**
+  - "New quote" for Test Customer Perera opened **Q-5Q4KVC**.
+  - 5 × TEE-3000 gave a live total of Rs 8,750. "Use default" filled in Rs 4,375. Validity defaulted to 24 Nov 2026 (7 days). Saved with an exclusion.
+  - "Mark accepted" on the unsent quote was refused with "Send the quote before marking it accepted."
+  - "Get quote link" showed the link and the WhatsApp text (revision 1). The customer page showed the revision, send time, lines, totals, advance, exclusion and validity. A wrong token gave 404.
+  - "Mark accepted" gave status confirmed via staff. TEE-3000 went from 23 to 18 with a `quote_accepted` movement. The history reads created → sent (revision 1) → accepted. The customer link then said "This quote has been accepted."
+
+**Fixed after the checks:**
+- **Found by me:** `valid_until` was first stored in UTC while every other column is in Colombo time (my spec was wrong); it's now stored in the app timezone. Codex had also edited this plan file; I reverted that.
+- **Found by the tests:**
+  - Accepting an unsent quote gave a 403 instead of the message.
+  - The quote editor crashed on open (the record type).
+  - Business settings were missing in a test.
+  - The tests for the link pop-up and for line errors didn't actually check what they claimed.
+- **Found by the review subagent** (Part A; nothing critical or high):
+  - Send didn't re-check the customer (privacy).
+  - The token was 40 hex characters instead of 64.
+  - The public link didn't require `source = quote`.
+  - The case of a variant deactivated after sending wasn't decided.
+  - Expiry depended on `APP_TIMEZONE`.
+  - Tests were missing: re-saving identical content must not count as a change, and a cost-only change must not count either.
+- **Found in the browser:** the duplicated error message, and the stray "·" when business contact details are empty.
+
+**Carried forward:**
+- **Dev setup:** the business settings (name, address, phone, email, WhatsApp number, quote footer) are empty on the dev database. Fill them in to see the full quote header and the WhatsApp accept link.
+- **IS-10:** withdrawing a quote (`quoted → cancelled` with a reason) goes through `TransitionOrder`. "Record payment" (including an advance on a quote) arrives with the order-screen actions.
+- **Release 3:** the sweep must also handle `placed` orders (release stock when nothing is paid, otherwise flag needs-attention), as the IS-7 notes say.
+- **Lock order** is unchanged: customer (shared) → order → document sequence → stock levels (ascending variant).
+
+**Dev data left by the check:** quote/order **Q-5Q4KVC** (confirmed, Rs 8,750, nothing paid yet), revision 1 snapshot. TEE-3000 is at 18. GYP-9-2400 is still at −10 from IS-8.
 
 ## IS-8 log
 
