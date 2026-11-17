@@ -7,7 +7,9 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/** @property Carbon|null $valid_until */
 #[Fillable(['order_id', 'revision', 'lines', 'total_cents', 'required_advance_cents', 'exclusions', 'valid_until', 'created_by_id'])]
 class QuoteSnapshot extends Model
 {

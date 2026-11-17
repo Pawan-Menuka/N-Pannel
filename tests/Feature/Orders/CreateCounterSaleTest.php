@@ -1,9 +1,9 @@
 <?php
 
 use App\Actions\Customers\ResolveCustomer;
-use App\Actions\Orders\CounterSaleLine;
 use App\Actions\Orders\CounterSalePayment;
 use App\Actions\Orders\CreateCounterSale;
+use App\Actions\Orders\OrderLineInput;
 use App\Actions\Orders\OrderReferenceGenerator;
 use App\Enums\OrderEventType;
 use App\Enums\OrderLineKind;
@@ -34,7 +34,7 @@ beforeEach(function () {
     $this->location = Location::factory()->create(['is_default' => true]);
     $this->variant = Variant::factory()->create(['price_cents' => 10000, 'last_cost_cents' => 7000]);
     StockLevel::factory()->create(['variant_id' => $this->variant->id, 'location_id' => $this->location->id, 'qty' => 10]);
-    $this->line = new CounterSaleLine(OrderLineKind::Product, $this->variant->id, 'Ignored text', 2, null);
+    $this->line = new OrderLineInput(OrderLineKind::Product, $this->variant->id, 'Ignored text', 2, null);
 });
 
 it('records a walk in cash sale with snapshots a receipt and a stock movement', function () {
@@ -91,7 +91,7 @@ it('allows named customers partial or no payment and updates their balance', fun
 it('uses trade prices with a retail fallback and keeps explicit prices', function (?int $trade, ?int $explicit, int $expected) {
     $this->customer->update(['price_tier' => PriceTier::Trade]);
     $this->variant->update(['trade_price_cents' => $trade]);
-    $line = new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 1, $explicit);
+    $line = new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 1, $explicit);
 
     $order = app(CreateCounterSale::class)->handle($this->customer, [$line], $this->by);
 
@@ -101,7 +101,7 @@ it('uses trade prices with a retail fallback and keeps explicit prices', functio
 
 it('sells untracked variants without a stock movement or level', function () {
     $variant = Variant::factory()->create(['track_stock' => false]);
-    $order = app(CreateCounterSale::class)->handle($this->customer, [new CounterSaleLine(OrderLineKind::Product, $variant->id, null, 1, null)], $this->by);
+    $order = app(CreateCounterSale::class)->handle($this->customer, [new OrderLineInput(OrderLineKind::Product, $variant->id, null, 1, null)], $this->by);
 
     expect($order->lines)->toHaveCount(1);
     $this->assertDatabaseCount('stock_movements', 0);
@@ -118,7 +118,7 @@ it('aggregates duplicate variants into one movement', function () {
 
 it('aggregates valid per line quantities above one million into a single reservation', function () {
     StockLevel::query()->where('variant_id', $this->variant->id)->update(['qty' => 2000000]);
-    $line = new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 600000, 0);
+    $line = new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 600000, 0);
 
     app(CreateCounterSale::class)->handle($this->customer, [$line, $line], $this->by);
 
@@ -141,7 +141,7 @@ it('locks the order then the receipt sequence then stock in ascending variant or
         }
     });
 
-    app(CreateCounterSale::class)->handle($this->customer, [new CounterSaleLine(OrderLineKind::Product, $second->id, null, 1, null), $this->line], $this->by, new CounterSalePayment(PaymentMethod::Cash, 30000, null, null));
+    app(CreateCounterSale::class)->handle($this->customer, [new OrderLineInput(OrderLineKind::Product, $second->id, null, 1, null), $this->line], $this->by, new CounterSalePayment(PaymentMethod::Cash, 30000, null, null));
 
     expect($locks[0])->toBe('orders');
     expect(array_search('document_sequences', $locks, true))->toBeLessThan(array_search('stock_levels', $locks, true));
@@ -161,7 +161,7 @@ it('limits product snapshots to the description column without changing the cata
 it('calculates delivery labour other and discount lines with signed discount totals', function () {
     $lines = [$this->line];
     foreach ([OrderLineKind::Delivery, OrderLineKind::Labour, OrderLineKind::Other, OrderLineKind::Discount] as $kind) {
-        $lines[] = new CounterSaleLine($kind, null, '  '.$kind->value.'  ', 1, 1000);
+        $lines[] = new OrderLineInput($kind, null, '  '.$kind->value.'  ', 1, 1000);
     }
     $order = app(CreateCounterSale::class)->handle($this->customer, $lines, $this->by);
 
@@ -177,13 +177,13 @@ it('calculates delivery labour other and discount lines with signed discount tot
 });
 
 it('refuses discounts larger than the order', function () {
-    expect(fn () => app(CreateCounterSale::class)->handle($this->customer, [$this->line, new CounterSaleLine(OrderLineKind::Discount, null, 'Discount', 1, 20001)], $this->by))
+    expect(fn () => app(CreateCounterSale::class)->handle($this->customer, [$this->line, new OrderLineInput(OrderLineKind::Discount, null, 'Discount', 1, 20001)], $this->by))
         ->toThrow(ValidationException::class, 'discount is larger');
     $this->assertDatabaseCount('orders', 0);
 });
 
 it('marks zero total walk in orders paid without creating a payment', function () {
-    $order = app(CreateCounterSale::class)->handle(app(ResolveCustomer::class)->walkIn(), [new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 1, 0)], $this->by);
+    $order = app(CreateCounterSale::class)->handle(app(ResolveCustomer::class)->walkIn(), [new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 1, 0)], $this->by);
 
     expect($order->payment_state)->toBe(PaymentState::Paid);
     expect($order->payments)->toHaveCount(0);
@@ -195,7 +195,7 @@ it('reports every shortage and rolls back orders payments events movements activ
     StockLevel::factory()->create(['variant_id' => $second->id, 'location_id' => $this->location->id, 'qty' => 1]);
     $available = Variant::factory()->create(['price_cents' => 10000]);
     StockLevel::factory()->create(['variant_id' => $available->id, 'location_id' => $this->location->id, 'qty' => 1]);
-    $lines = [new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 11, null), new CounterSaleLine(OrderLineKind::Product, $second->id, null, 3, null), new CounterSaleLine(OrderLineKind::Product, $available->id, null, 1, null)];
+    $lines = [new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 11, null), new OrderLineInput(OrderLineKind::Product, $second->id, null, 3, null), new OrderLineInput(OrderLineKind::Product, $available->id, null, 1, null)];
     $activities = Activity::count();
     try {
         app(CreateCounterSale::class)->handle($this->customer, $lines, $this->by, new CounterSalePayment(PaymentMethod::Cash, 150000, null, null));
@@ -215,7 +215,7 @@ it('reports every shortage and rolls back orders payments events movements activ
 
 it('overrides only short variants and records the reason and affected skus', function () {
     $short = Variant::factory()->create(['price_cents' => 10000]);
-    $order = app(CreateCounterSale::class)->handle($this->customer, [$this->line, new CounterSaleLine(OrderLineKind::Product, $short->id, null, 1, null)], $this->by, stockOverrideReason: '  Counted delivery due today  ');
+    $order = app(CreateCounterSale::class)->handle($this->customer, [$this->line, new OrderLineInput(OrderLineKind::Product, $short->id, null, 1, null)], $this->by, stockOverrideReason: '  Counted delivery due today  ');
 
     $movements = StockMovement::query()->orderBy('variant_id')->get();
     expect($movements->first()->is_override)->toBeFalse();
@@ -347,18 +347,18 @@ it('stops after five reference collisions and rolls back', function () {
 it('validates product presence line count and each line before writing', function (string $case) {
     $lines = match ($case) {
         'empty' => [],
-        'no product' => [new CounterSaleLine(OrderLineKind::Other, null, 'Other', 1, 100)],
+        'no product' => [new OrderLineInput(OrderLineKind::Other, null, 'Other', 1, 100)],
         'too many' => array_fill(0, 201, $this->line),
-        'missing variant' => [new CounterSaleLine(OrderLineKind::Product, PHP_INT_MAX, null, 1, null)],
-        'inactive variant' => [new CounterSaleLine(OrderLineKind::Product, Variant::factory()->create(['is_active' => false])->id, null, 1, null)],
-        'nonproduct variant' => [$this->line, new CounterSaleLine(OrderLineKind::Other, $this->variant->id, 'Other', 1, 100)],
-        'blank description' => [$this->line, new CounterSaleLine(OrderLineKind::Delivery, null, '  ', 1, 100)],
-        'long description' => [$this->line, new CounterSaleLine(OrderLineKind::Other, null, str_repeat('x', 256), 1, 100)],
-        'missing price' => [$this->line, new CounterSaleLine(OrderLineKind::Discount, null, 'Discount', 1, null)],
-        'zero qty' => [new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 0, 100)],
-        'large qty' => [new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 1000001, 100)],
-        'negative price' => [new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 1, -1)],
-        'large price' => [new CounterSaleLine(OrderLineKind::Product, $this->variant->id, null, 1, 10000000001)],
+        'missing variant' => [new OrderLineInput(OrderLineKind::Product, PHP_INT_MAX, null, 1, null)],
+        'inactive variant' => [new OrderLineInput(OrderLineKind::Product, Variant::factory()->create(['is_active' => false])->id, null, 1, null)],
+        'nonproduct variant' => [$this->line, new OrderLineInput(OrderLineKind::Other, $this->variant->id, 'Other', 1, 100)],
+        'blank description' => [$this->line, new OrderLineInput(OrderLineKind::Delivery, null, '  ', 1, 100)],
+        'long description' => [$this->line, new OrderLineInput(OrderLineKind::Other, null, str_repeat('x', 256), 1, 100)],
+        'missing price' => [$this->line, new OrderLineInput(OrderLineKind::Discount, null, 'Discount', 1, null)],
+        'zero qty' => [new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 0, 100)],
+        'large qty' => [new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 1000001, 100)],
+        'negative price' => [new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 1, -1)],
+        'large price' => [new OrderLineInput(OrderLineKind::Product, $this->variant->id, null, 1, 10000000001)],
     };
 
     expect(fn () => app(CreateCounterSale::class)->handle($this->customer, $lines, $this->by))->toThrow(ValidationException::class);

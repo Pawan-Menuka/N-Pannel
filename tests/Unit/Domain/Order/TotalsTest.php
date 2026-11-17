@@ -5,6 +5,14 @@ use App\Domain\Order\InvalidOrderTotals;
 use App\Domain\Order\Totals;
 use App\Enums\OrderLineKind;
 
+it('calculates percentages with integer half up rounding', function (int $total, int $percent, int $expected) {
+    expect(Totals::percentOf($total, $percent))->toBe($expected);
+})->with([[101, 50, 51], [1, 50, 1], [1, 49, 0], [12345, 0, 0], [12345, 100, 12345], [PHP_INT_MAX, 100, PHP_INT_MAX]]);
+
+it('refuses invalid percentage inputs', function (int $total, int $percent) {
+    expect(fn () => Totals::percentOf($total, $percent))->toThrow(InvalidOrderTotals::class);
+})->with([[-1, 50], [100, -1], [100, 101]]);
+
 it('separates subtotal delivery and positive discounts', function () {
     $totals = Totals::calculate([
         ['kind' => OrderLineKind::Product, 'qty' => 2, 'unitPriceCents' => 10000],

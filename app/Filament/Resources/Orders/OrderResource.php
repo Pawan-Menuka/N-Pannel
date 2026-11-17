@@ -5,9 +5,11 @@ namespace App\Filament\Resources\Orders;
 use App\Domain\Money\Lkr;
 use App\Enums\OrderSource;
 use App\Enums\OrderStatus;
+use App\Filament\Resources\Orders\Pages\EditQuote;
 use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Resources\Orders\Pages\NewSale;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
+use App\Filament\Resources\Orders\RelationManagers\QuoteSnapshotsRelationManager;
 use App\Models\Order;
 use Filament\Actions\ViewAction;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -105,7 +107,13 @@ class OrderResource extends Resource
         return [
             'index' => ListOrders::route('/'),
             'new-sale' => NewSale::route('/new-sale'),
+            'quote' => EditQuote::route('/{record}/quote'),
             'view' => ViewOrder::route('/{record}'),
         ];
+    }
+
+    public static function getRelations(): array
+    {
+        return [QuoteSnapshotsRelationManager::class];
     }
 }
