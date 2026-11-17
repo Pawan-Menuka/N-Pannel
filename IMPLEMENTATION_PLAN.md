@@ -18,13 +18,72 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-9 | Quotes | done (PR #10 merged) | `feature/is-9-quotes` | See IS-9 log |
 | IS-10 | Fulfilment, order screen | done (PR #11 merged) | `feature/is-10-fulfilment` | See IS-10 log |
 | IS-11 | Invoices and receipts | done (PR #12 merged); accountant layout approval pending | `feature/is-11-invoices` | See IS-11 log |
-| IS-12 | Returns and credit notes | done locally; CI runs on the PR | `feature/is-12-returns` | See IS-12 log |
-| IS-13 | Dashboard and reports | not started | | |
+| IS-12 | Returns and credit notes | done (PR #13 merged) | `feature/is-12-returns` | See IS-12 log |
+| IS-13 | Dashboard and reports | done locally; CI runs on the PR | `feature/is-13-reports` | See IS-13 log |
 | IS-14 | Hardening and staging deploy | not started | | |
 
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-13 log
+
+**Built (by Codex, verified 18 Nov 2026):**
+- **Report definitions** (`app/Actions/Reports`, with pure helpers `Domain/Reports/{AgeBucket,DateRange,ReportResult}`):
+  - **Counted orders:** confirmed, processing, ready for collection, dispatched or completed. A sale is dated by `confirmed_at`, a return by `sales_returns.created_at`, and a payment or refund by `confirmed_at`.
+  - **The effective total** (total − returned) is used throughout. Returns and credit notes on orders that aren't counted are excluded.
+- **Reports:**
+  - **`SalesByDay`:** one row per Colombo day, including days with nothing: orders, gross, returns, net, payments received (payments − refunds), and credit notes (count and value, already included in returns).
+  - **`SalesByProduct`:** per variant: quantity sold, gross, quantity and value returned, net quantity, net value, cost at sale, and margin. Rows with an unknown cost are flagged.
+  - **`StockValuation`** (as of now): tracked variants, quantity × last cost. Items with no cost are flagged and left out of the total; negative quantities are shown.
+  - **`MoneyOwed`:** customers with a positive balance, aged into 0–30, 31–60, 61–90 and 90+ days by each owing order's `confirmed_at`.
+  - **`GoodsReceivedBySupplier`:** posted, non-void receipts by `posted_at`.
+- **CSV export** (`ExportReportCsv`): UTF-8 with BOM, a header row and a totals row, and the file name includes the date range.
+  - **Text cells** go through the formula-injection guard (`=`, `+`, `-`, `@`, tab, CR).
+  - **Money and number cells** stay real numbers, negatives included.
+  - **The range exported** is the one applied on screen.
+- **Filament:**
+  - **Reports group (admin only):** a `viewReports` gate, checked against the database on every Livewire request. Five pages, each with a date range (default this month, at most 366 days, `#[Locked]` applied range), a table, totals and "Export CSV".
+  - **Dashboard widgets** (no 5-second polling):
+    - For admin and sales: Today (net sales, orders, payments received), Money owed (total and number of customers), Needs attention, Accepted orders with a balance (latest 10), and Quotes expiring in 72 hours (10).
+    - **Low stock** (admin, sales and stock): filtered in SQL, ordered by shortfall, 10 rows, with a "View all" link.
+    - **The stock role sees no money.**
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1882/1882 (9006 assertions).
+- **Test coverage includes:**
+  - Colombo midnight boundaries.
+  - Excluded statuses.
+  - Returns and refunds.
+  - Walk-in and anonymised customers.
+  - Age-bucket edges at 30/31, 60/61 and 90/91 days.
+  - The CSV guards.
+  - A test that the dashboard figures equal the report figures.
+- No new migrations.
+- **Browser, on the dev database:**
+  - **Dashboard:** today shows net sales −Rs 1,750 and payments received −Rs 1,750 (the IS-12 return and refund were today), and Rs 0 owed.
+  - **Sales by day for November:**
+    - 17 Nov: 1 order, Rs 8,750 gross. The cancelled sales are excluded. Payments are Rs 12,250 (3,500 + 162,500 + 4,375 + 4,375 − 162,500 refund).
+    - 18 Nov: a Rs 1,750 return with 1 credit note.
+    - Totals: net Rs 7,000, payments Rs 10,500.
+  - Every figure matches the data.
+
+**Fixed after the checks:**
+- **Found by the tests:**
+  - Larastan nullsafe warnings.
+  - A permission test whose demotion never happened, because `role` is guarded. Fixed, and the gate now re-reads the user every time.
+- **Found by the review subagent** (nothing blocking):
+  - Negative CSV amounts became text.
+  - Returns on orders that are no longer counted were still subtracted.
+  - The dashboard polled every 5 seconds.
+  - The low-stock and expiring-quotes lists had no limit.
+  - The export used dates that hadn't been applied.
+  - CSV guard cases weren't tested.
+
+**Carried forward:**
+- **IS-14:** browser tests of the main journeys, a staff walk-through, and the staging deploy to Laravel Cloud (Singapore) with a nightly backup.
+- **The accountant's approval** of the invoice, receipt and credit note layouts is still pending (IS-11, IS-12).
 
 ## IS-12 log
 
