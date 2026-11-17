@@ -5,6 +5,7 @@ namespace App\Actions\Orders;
 use App\Domain\Order\PaymentStates;
 use App\Domain\Order\Totals;
 use App\Enums\PaymentKind;
+use App\Enums\PaymentState;
 use App\Enums\PaymentStatus;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,12 @@ final class RecalculateOrderPayments
         if (DB::transactionLevel() === 0) {
             throw new LogicException('Recalculating order payments requires a database transaction.');
         }
+        $order->update($this->totals($order));
+    }
+
+    /** @return array{paid_cents: int, refunded_cents: int, payment_state: PaymentState} */
+    public function totals(Order $order): array
+    {
         $received = 0;
         $refunded = 0;
         foreach ($order->payments()->where('status', PaymentStatus::Confirmed)->get() as $payment) {
@@ -28,10 +35,11 @@ final class RecalculateOrderPayments
             }
         }
         $net = $received - $refunded;
-        $order->update([
+
+        return [
             'paid_cents' => $net,
             'refunded_cents' => $refunded,
             'payment_state' => PaymentStates::derive($order->total_cents, $net, $refunded),
-        ]);
+        ];
     }
 }

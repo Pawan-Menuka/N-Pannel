@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DocumentStatus;
+use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\District;
 use App\Models\Invoice;
@@ -21,6 +22,11 @@ it('floors an overpaid order balance at zero', function () {
 
     expect($order->balanceCents())->toBe(0);
 });
+
+it('shows no balance on cancelled or expired orders after a full refund', function (OrderStatus $status) {
+    $order = Order::factory()->make(['status' => $status, 'total_cents' => 16250000, 'paid_cents' => 0, 'refunded_cents' => 16250000]);
+    expect($order->balanceCents())->toBe(0);
+})->with([OrderStatus::Cancelled, OrderStatus::Expired]);
 
 it('finds the issued invoice and ignores void invoices', function () {
     $order = Order::factory()->create();

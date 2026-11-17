@@ -24,4 +24,19 @@ class OrderPolicy extends ModelPolicy
     {
         return RoleMatrix::allows($user, Order::class, 'overrideStock');
     }
+
+    public function transition(User $user): bool
+    {
+        return RoleMatrix::allows($user, Order::class, 'transition');
+    }
+
+    public function completeOverride(User $user): bool
+    {
+        return RoleMatrix::allows($user, Order::class, 'completeOverride');
+    }
+
+    public function clearAttention(User $user): bool
+    {
+        return RoleMatrix::allows($user, Order::class, 'clearAttention');
+    }
 }

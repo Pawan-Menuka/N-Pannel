@@ -15,8 +15,8 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-6 | Customers | done (PR #7 merged) | `feature/is-6-customers` | See IS-6 log |
 | IS-7 | Order core, payments | done (PR #8 merged) | `feature/is-7-orders` | See IS-7 log |
 | IS-8 | Counter sales | done (PR #9 merged) | `feature/is-8-counter-sales` | See IS-8 log |
-| IS-9 | Quotes | done locally; CI runs on the PR | `feature/is-9-quotes` | See IS-9 log |
-| IS-10 | Fulfilment, order screen | not started | | |
+| IS-9 | Quotes | done (PR #10 merged) | `feature/is-9-quotes` | See IS-9 log |
+| IS-10 | Fulfilment, order screen | done locally; CI runs on the PR | `feature/is-10-fulfilment` | See IS-10 log |
 | IS-11 | Invoices and receipts | not started | | |
 | IS-12 | Returns and credit notes | not started | | |
 | IS-13 | Dashboard and reports | not started | | |
@@ -25,6 +25,75 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-10 log
+
+**Built (by Codex, verified 17 Nov 2026):**
+- **`Actions/Orders/TransitionOrder`** (the "Move to…" button; new `transition` ability for admin and sales):
+  - **Moves it handles:** withdrawing a quote (quoted → cancelled), confirmed → processing, processing → ready for collection or dispatched, ready/dispatched → completed, and cancelling.
+  - **Moves it refuses** with a message, so other actions own them: accepting a quote ("Use Mark accepted"), expiry (sweep only) and every `placed` row (Release 3).
+  - **`targetsFor()`** gives the UI only the moves allowed from the current status.
+  - **Cancelling:**
+    - A reason is always required. Early cancels take free text. Late cancels (ready or dispatched) must use one of the `LateCancelReason` values: delivery refused, not collected, damaged in transit.
+    - **Early cancel (confirmed or processing):** puts back exactly what the order took out. It nets the order's own stock movements per variant and location, in ascending variant order, with reason `order_cancelled`. That stays correct even after an override sale took stock negative, or when two lines share a variant.
+    - **Withdrawing a quote** releases nothing.
+    - **Late cancel:** releases nothing. It flags the order needs-attention with "Cancelled after {status}: {reason}. Check what came back and adjust stock."
+    - **Any cancel with money still paid** adds "Rs X was paid on this cancelled order — record a refund."
+  - **Fulfilment:** ready for collection sets fulfilment to collection, and dispatched sets it to delivery.
+  - **Completing:** refused while a balance is owed, unless an admin (new `completeOverride` ability, admin only) gives a reason. That is logged as "Completed with Rs X owed: …".
+  - **Locks:** the order is locked, then status and balance are re-checked under the lock, then stock rows in ascending order. Payments are recalculated after the move.
+- **`ClearAttention`** (new `clearAttention` ability for admin and sales): needs a note, and writes "Attention cleared: …".
+- **`AppendAttentionNote`** (shared by late payments, late cancels, the refund reminder and the sweep): when the note is full, it keeps the **newest** text and trims the oldest, prefixed with "… ".
+- **`SweepExpired`:** a quote that expires with an advance paid is still expired, but flagged with a refund reminder. This was the "check nothing is paid in the sweep" item carried from IS-7.
+- **Order balance:** `PaymentStates::balance()` and `Order::balanceCents()` return 0 for cancelled and expired orders, because nobody owes them. A quote still shows total minus paid.
+- **Filament** (Quotes and orders):
+  - **List:** tabs for All, Quotes, Accepted, In progress, Done and Needs attention (with a count badge), plus a "Needs attention" column.
+  - **Order page buttons:**
+    - **"Move to…":** offers only the allowed moves. Cancelling shows free text or the late reasons. Completing with money owed shows "Rs X is still owed", and the override reason field appears for admins only.
+    - **"Record payment":** allowed on quotes too, for an advance. The amount defaults to the balance, or is left blank on a cancelled or expired order. The button is hidden once an active order is fully paid. The confirmation shows the receipt number.
+    - **"Record refund"**, while net paid is above 0.
+    - **"Clear attention"**, when the order is flagged.
+  - **Order page layout:** a "Needs attention" box at the top when flagged, a newest-first timeline, and the cancel reason, fulfilment and completed/cancelled times when they are set.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1482/1482 (6777 assertions).
+- **Two-connection Postgres test:** a cancellation racing a payment on the same order is serialised by the order lock and ends in a consistent state.
+- **Lock timeouts:** every two-connection test (orders, quotes, purchasing, fulfilment) now sets a 5-second lock timeout on its setup and cleanup, so a stuck lock fails quickly instead of hanging the suite.
+- **The blueprint's "done when" scenario** is a single feature test.
+- No new migrations.
+- **Browser, on the dev database:**
+  - **Q-5Q4KVC:**
+    - Recorded a Rs 4,375 advance (RCP-2026-00003, partially paid).
+    - Moved it to processing, then dispatched (the confirmed order offered only Processing and Cancelled).
+    - Choosing Completed showed "Rs 4,375.00 is still owed" with the admin override field. I didn't use it.
+    - Recorded the balance (RCP-2026-00004). "Record payment" then disappeared, and the order completed.
+  - **O-GCCWMW:** moved to processing, then dispatched, then cancelled as "Delivery refused". The reason was a list of the three late reasons. TEE-3000 stayed at 18. The order was flagged with the check-stock note and the Rs 3,500 refund reminder. The list's Needs attention tab showed 1.
+  - **O-PZGKPR (early cancel):** GYP-9-2400 went from −10 back to **40** (+50 `order_cancelled`). The refund reminder appeared. Recording a Rs 162,500 refund set the order to Refunded, and "Clear attention" cleared the flag with its note.
+
+**Fixed after the checks:**
+- **Test run:** the first full run hung because the Postgres container had stopped (exit 255, an unclean shutdown, probably Docker Desktop restarting or the machine sleeping). Restarting it was enough; Postgres recovered by itself.
+- **Found by the tests:**
+  - Several timestamp tests failed by microseconds (`freezeTime` instead of `freezeSecond`).
+  - A tab badge returned a string where the test expected a number.
+  - The late-cancel reason reached the action as an enum.
+- **Found by the review subagent** (nothing critical):
+  - A paid quote expired silently.
+  - When the attention note was full, the newest note was dropped.
+  - The payment form's default amount was wrong on cancelled and on fully paid orders.
+  - Two-connection test setup had no lock timeout.
+- **Found in the browser:** a cancelled order that had been refunded in full showed its whole total as the balance.
+
+**Carried forward:**
+- **IS-12:** an early cancel releases only movements whose source is the order. If returns are ever allowed before completion, either block cancelling once a return exists, or include return movements in the net. Otherwise stock is released twice.
+- **IS-13:** the dashboard widgets from blueprint phase 11 (accepted orders with a balance, orders needing attention) are deferred to the IS-13 dashboard.
+- **Release 3:** `placed` orders still need their sweep (release stock when nothing is paid, otherwise flag).
+
+**Dev data left by the check:**
+- Q-5Q4KVC: completed and paid (RCP-2026-00003 and 00004).
+- O-GCCWMW: cancelled after dispatch, still flagged, Rs 3,500 not yet refunded.
+- O-PZGKPR: cancelled and fully refunded.
+- Stock: TEE-3000 at 18, GYP-9-2400 back at 40.
 
 ## IS-9 log
 

@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 it('allows concurrent stock movement foreign key checks while serializing receipt costs', function (bool $void) {
     $primary = DB::getDefaultConnection();
     config(['database.connections.purchasing_peer' => config('database.connections.'.$primary)]);
+    DB::connection('purchasing_peer')->statement("SET lock_timeout = '5s'");
     DB::setDefaultConnection('purchasing_peer');
     try {
         [$variant, $location, $productId, $categoryId] = DB::transaction(fn (): array => Model::withoutEvents(function (): array {
@@ -82,6 +83,7 @@ it('allows concurrent stock movement foreign key checks while serializing receip
 it('holds a shared variant lock until a draft line is saved so a concurrent delete cannot win', function () {
     $primary = DB::getDefaultConnection();
     config(['database.connections.purchasing_peer' => config('database.connections.'.$primary)]);
+    DB::connection('purchasing_peer')->statement("SET lock_timeout = '5s'");
     DB::setDefaultConnection('purchasing_peer');
     try {
         [$variant, $productId, $categoryId] = DB::transaction(fn (): array => Model::withoutEvents(function (): array {

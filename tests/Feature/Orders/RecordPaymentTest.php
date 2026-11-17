@@ -206,7 +206,7 @@ it('appends late payment attention while keeping an event for every late payment
     expect($order->needs_attention)->toBeTrue();
 });
 
-it('appends attention at the length limit and preserves the original beyond it', function (int $overflow) {
+it('appends attention at the length limit and keeps the newest payment note beyond it', function (int $overflow) {
     $by = User::factory()->sales()->create();
     $line = 'Payment of Rs 1.00 received after the order was expired.';
     $existing = str_repeat('x', 255 - mb_strlen($line) - 1 + $overflow);
@@ -214,7 +214,7 @@ it('appends attention at the length limit and preserves the original beyond it',
 
     app(RecordPayment::class)->handle($order, PaymentMethod::Cash, 100, null, null, $by);
 
-    expect($order->refresh()->attention_note)->toBe($overflow === 0 ? $existing.' '.$line : $existing);
+    expect($order->refresh()->attention_note)->toBe($overflow === 0 ? $existing.' '.$line : '… '.str_repeat('x', 255 - mb_strlen($line) - 3).' '.$line);
     expect($order->needs_attention)->toBeTrue();
     $this->assertDatabaseHas('order_events', ['order_id' => $order->id, 'type' => 'attention', 'note' => $line, 'user_id' => $by->id]);
 })->with([0, 1, 57]);

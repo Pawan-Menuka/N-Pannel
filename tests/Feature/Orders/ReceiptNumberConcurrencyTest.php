@@ -23,6 +23,9 @@ beforeEach(function () {
         'database.connections.receipt_owner' => config('database.connections.'.$primary),
         'database.connections.receipt_peer' => config('database.connections.'.$primary),
     ]);
+    foreach (['receipt_owner', 'receipt_peer'] as $name) {
+        DB::connection($name)->statement("SET lock_timeout = '5s'");
+    }
     /** These tests commit isolated sequence years outside RefreshDatabase's main transaction. */
     $this->beforeApplicationDestroyed(function () use ($primary): void {
         DB::setDefaultConnection($primary);
@@ -105,6 +108,7 @@ it('returns rolled back receipt allocations to both new and existing sequences a
 it('locks the order before checking the balance and rejects a competing committed ledger entry', function (bool $refund) {
     $primary = DB::getDefaultConnection();
     config(['database.connections.order_peer' => config('database.connections.'.$primary)]);
+    DB::connection('order_peer')->statement("SET lock_timeout = '5s'");
     DB::setDefaultConnection('order_peer');
     try {
         [$by, $order] = DB::transaction(fn (): array => Model::withoutEvents(function () use ($refund): array {

@@ -3,6 +3,7 @@
 namespace App\Actions\Payments;
 
 use App\Actions\Documents\NextDocumentNumber;
+use App\Actions\Orders\AppendAttentionNote;
 use App\Actions\Orders\RecalculateOrderPayments;
 use App\Actions\Orders\RecordOrderEvent;
 use App\Domain\Money\Lkr;
@@ -25,7 +26,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class RecordPayment
 {
-    public function __construct(private NextDocumentNumber $numbers, private RecalculateOrderPayments $payments, private RecordOrderEvent $events) {}
+    public function __construct(private NextDocumentNumber $numbers, private RecalculateOrderPayments $payments, private RecordOrderEvent $events, private AppendAttentionNote $attention) {}
 
     public function handle(Order $order, PaymentMethod $method, int $amountCents, ?string $reference, ?string $note, User $by): Payment
     {
@@ -71,13 +72,7 @@ final class RecordPayment
             $this->payments->handle($locked);
             if ($late) {
                 $attention = 'Payment of '.Lkr::formatWithCurrency($amountCents).' received after the order was '.$locked->status->value.'.';
-                $existing = $locked->attention_note;
-                $combined = $existing === null || $existing === '' ? $attention : $existing.' '.$attention;
-                $locked->update([
-                    'needs_attention' => true,
-                    'attention_note' => mb_strlen($combined) <= 255 ? $combined : $existing,
-                ]);
-                $this->events->handle($locked, OrderEventType::Attention, note: $attention, by: $by);
+                $this->attention->handle($locked, $attention, $by);
             }
             $this->events->handle($locked, OrderEventType::Payment, note: 'Payment '.Lkr::formatWithCurrency($amountCents).' by '.$method->getLabel().', receipt '.$receipt, by: $by);
 

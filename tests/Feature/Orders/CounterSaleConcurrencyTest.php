@@ -21,6 +21,9 @@ it('serializes two counter sales of the last unit and refuses the loser without 
         'database.connections.sale_owner' => config('database.connections.'.$primary),
         'database.connections.sale_peer' => config('database.connections.'.$primary),
     ]);
+    foreach (['sale_owner', 'sale_peer'] as $name) {
+        DB::connection($name)->statement("SET lock_timeout = '5s'");
+    }
     DB::setDefaultConnection('sale_owner');
     try {
         [$by, $customer, $variant, $location, $productId, $categoryId] = DB::transaction(fn (): array => Model::withoutEvents(function (): array {

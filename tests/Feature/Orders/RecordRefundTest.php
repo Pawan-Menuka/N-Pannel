@@ -63,7 +63,7 @@ it('fully refunds the remaining net paid after an earlier partial refund', funct
     expect($order->paid_cents)->toBe(0);
     expect($order->refunded_cents)->toBe(10000);
     expect($order->payment_state)->toBe(PaymentState::Refunded);
-    expect($order->balanceCents())->toBe(10000);
+    expect($order->balanceCents())->toBe(0);
 });
 
 it('refuses refunds above the remaining net paid without writing anything', function () {
