@@ -48,7 +48,7 @@ class AdminPanelProvider extends PanelProvider
             ->multiFactorAuthentication([
                 RequiredAppAuthentication::make()->recoverable(),
             ], isRequired: true)
-            ->navigationGroups(['Sales', 'Inventory', 'Administration', 'Settings'])
+            ->navigationGroups(['Sales', 'Inventory', 'Reports', 'Administration', 'Settings'])
             ->colors([
                 'primary' => Color::Amber,
             ])
