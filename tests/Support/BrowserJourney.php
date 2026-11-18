@@ -79,6 +79,7 @@ final class BrowserJourney
     public function pick(string $name, string $search): void
     {
         $button = self::field($name, 'button[aria-haspopup="listbox"]');
+        $this->page->page()->locator($button)->waitFor(['state' => 'visible']);
         $this->page->assertVisible($button)->click($button)->assertAttribute($button, 'aria-expanded', 'true');
         $dropdown = $this->page->attribute($button, 'aria-controls');
         expect($dropdown)->toBeString()->not->toBeEmpty();
