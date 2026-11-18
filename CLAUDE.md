@@ -1,6 +1,6 @@
 # N-Pannel — project rules
 
-Back office (Filament admin at `/admin`) for a Sri Lankan ceiling-sheet / building-materials business. The current slice is **inventory and sales**: see `IMPLEMENTATION_PLAN.md` (phases IS-0 to IS-14, with status). The long-range spec is `docs/BLUEPRINT.md` (revision 3). Where the plan and the blueprint differ, the plan wins.
+Back office (Filament admin at `/admin`) for a Sri Lankan ceiling-sheet / building-materials business. The current slice is **inventory and sales**: see `IMPLEMENTATION_PLAN.md` (phases IS-0 to IS-14, with status). The next slice turns it into part of an ERP (costing, accounting journal, purchasing, payables, credit control): see `ERP_IMPLEMENTATION_PLAN.md` (phases ERP-0 to ERP-12, proposed, not started). The long-range spec is `docs/BLUEPRINT.md` (revision 3). Where a plan and the blueprint differ, the plan wins; the ERP plan replaces the blueprint's CRM direction.
 
 ## Branches and commits
 - Base branch is `Develop`. Never push to or open PRs against `main`.
