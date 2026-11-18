@@ -19,7 +19,12 @@ use Livewire\Attributes\Locked;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use UnitEnum;
 
-/** @property Schema $form */
+/**
+ * The checked CSV stays on the local disk between check and import. On Laravel
+ * Cloud this workflow requires one replica and must finish before a deployment.
+ *
+ * @property Schema $form
+ */
 class ImportProducts extends Page
 {
     protected static string|UnitEnum|null $navigationGroup = 'Inventory';

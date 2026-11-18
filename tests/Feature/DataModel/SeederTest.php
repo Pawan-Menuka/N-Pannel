@@ -10,7 +10,9 @@ use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Variant;
+use Database\Seeders\CategorySeeder;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\LocationSeeder;
 use Database\Seeders\SampleCatalogSeeder;
 
 it('seeds stable reference data without resetting the admin password', function () {
@@ -49,15 +51,27 @@ it('seeds local sample catalog data without resetting existing stock', function 
     expect(StockMovement::count())->toBe(0);
 });
 
-it('does not seed sample catalog data outside local', function (string $environment) {
+it('does not seed sample catalog data when disabled', function (string $environment) {
     $this->app->instance('env', $environment);
+    config(['seed.sample_catalog' => false]);
 
     $this->app->make(SampleCatalogSeeder::class)->run();
 
     expect(Product::count())->toBe(0);
     expect(Variant::count())->toBe(0);
     expect(StockLevel::count())->toBe(0);
-})->with(['testing', 'staging', 'production']);
+})->with(['local', 'testing', 'staging', 'production']);
+
+it('seeds sample catalog data when explicitly enabled in any environment', function (string $environment) {
+    $this->app->instance('env', $environment);
+    config(['seed.sample_catalog' => true]);
+    foreach ([LocationSeeder::class, CategorySeeder::class, SampleCatalogSeeder::class] as $seeder) {
+        $this->artisan('db:seed', ['--class' => $seeder, '--force' => true])->assertSuccessful();
+    }
+
+    expect(Product::count())->toBe(4);
+    expect(Variant::count())->toBe(8);
+})->with(['local', 'testing', 'staging', 'production']);
 
 it('preserves staff edits when reference and admin seeders run again', function () {
     $this->seed(DatabaseSeeder::class);

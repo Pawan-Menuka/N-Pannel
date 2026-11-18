@@ -19,12 +19,65 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-10 | Fulfilment, order screen | done (PR #11 merged) | `feature/is-10-fulfilment` | See IS-10 log |
 | IS-11 | Invoices and receipts | done (PR #12 merged); accountant layout approval pending | `feature/is-11-invoices` | See IS-11 log |
 | IS-12 | Returns and credit notes | done (PR #13 merged) | `feature/is-12-returns` | See IS-12 log |
-| IS-13 | Dashboard and reports | done locally; CI runs on the PR | `feature/is-13-reports` | See IS-13 log |
-| IS-14 | Hardening and staging deploy | not started | | |
+| IS-13 | Dashboard and reports | done (PR #14 merged) | `feature/is-13-reports` | See IS-13 log |
+| IS-14 | Hardening and staging deploy | done locally; staging live in Singapore; admin seed and staff walk-through pending | `feature/is-14-hardening` | See IS-14 log |
 
 ## How work is done
 
 Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP, Composer, npm or Docker** on this machine, so the orchestrator runs every machine-level command: package installs, migrations, Pint, Larastan, Pest and Docker. Codex only edits files. Failures go back to Codex with the exact output.
+
+## IS-14 log
+
+**Built (by Codex; dependencies installed by me with your approval; verified 18 Nov 2026):**
+- **New dev dependencies** (approved by you): `pestphp/pest-plugin-browser` ^5.2 (composer) and `playwright` (npm, with headless Chromium installed locally).
+- **Browser journeys** (`tests/Browser`, real Chromium, group `browser`, helper `tests/Support/BrowserJourney.php`):
+  - They sign in through the real login page with an authenticator code worked out from the user's secret.
+  - Journeys, each driven through the UI with database checks at the end:
+    1. Receive 50 panels on a goods-received note.
+    2. Counter sale of 12 with part payment.
+    3. A trade-price quote of 30 (Get quote link, open the public page, Mark accepted).
+    4. Record the balance, Issue invoice, and open the print page.
+    5. Return 2 (one back to stock, one damaged) with refunds and credit notes. **Final stock is 9.**
+  - **Role checks:** stock staff don't see Sales or Reports, and sales staff can't open Reports.
+  - **How they run:** `composer test` leaves them out (`--exclude-group=browser`), `composer test:browser` runs them, and CI installs Chromium and runs both.
+- **Hardening:**
+  - **`SecurityHeaders` middleware** on web and panel routes: nosniff, SAMEORIGIN, Referrer-Policy and Permissions-Policy, plus HSTS on HTTPS in staging and production. Document pages keep their own no-referrer.
+  - **`trustProxies(at: '*')`** so Laravel Cloud's edge HTTPS is recognised (needed for HSTS and https links).
+  - **Scheduler:** `store:sweep` hourly and `catalog:prune-imports` daily, both `onOneServer()`, with `withoutOverlapping(10)` and `(60)`. The activity log is **never** cleaned automatically; retention is your decision.
+  - **Seeders:**
+    - Outside local and testing, `SEED_ADMIN_EMAIL` is required always and `SEED_ADMIN_PASSWORD` only when the admin doesn't exist yet. A password is never generated or printed outside local and testing.
+    - An existing admin is never changed.
+    - The sample catalog only seeds when `SEED_SAMPLE_CATALOG` is true, which is the default only in local and testing.
+  - **Report indexes** (migration `000013`): `orders(confirmed_at)`, `payments(status, confirmed_at)`, `sales_returns(created_at)` and `goods_receipts(status, posted_at)`.
+  - **`.env.example`:** staging notes added. No `env()` calls outside the config files.
+  - **The product import** keeps its checked CSV on local disk. That works with one server; it needs object storage before scaling to more than one. This is documented on the class.
+
+**Checks:**
+- Pint and Larastan level 6 (0 errors) pass.
+- Pest: 1928/1928 (9177 assertions) without the browser group, plus the browser suite 7/7 in Chromium.
+- The migration ran on the dev database.
+
+**Staging on Laravel Cloud** (set up by you in the dashboard, guided step by step):
+- **App:** `n-pannel`, environment **Develop**, from branch `Develop` (now the GitHub default branch), in **Asia Pacific (Singapore)**. Flex 512 MiB, scale to zero.
+- **Database:** Serverless **Postgres 17**, ¼ unit, scale to zero, Singapore. **Point-in-time recovery** is active, with retention raised to **7 days**. This replaces a separate nightly backup.
+- **Variables:** `APP_ENV=staging`, `LOG_LEVEL=info`, `SESSION_SECURE_COOKIE=true`, `SESSION_DRIVER=database`, `QUEUE_CONNECTION=database`, `CACHE_STORE=database` and `SEED_ADMIN_EMAIL`. The `APP_KEY` is Cloud's own, never shown in chat.
+- **Build:** `composer install --no-dev … && npm ci && npm run build`. **Deploy:** `php artisan migrate --force`. **The scheduler is on.**
+- **The first deploy** (commit 1947ee9, IS-13) migrated cleanly, and `/admin` shows the sign-in page.
+- **A first attempt in US East** (a region set by mistake in onboarding) was deleted and recreated in Singapore while it was empty.
+
+**Still to do after this PR is merged** (staging redeploys from `Develop` automatically):
+1. Create the Cloud secret **`SEED_ADMIN_PASSWORD`** (typed by you) and link it to Develop, then redeploy.
+2. From the environment's **Commands** tab, run once: `php artisan db:seed --class=Database\\Seeders\\DatabaseSeeder --force`. This seeds the location, walk-in customer, districts and the admin; no sample catalog on staging.
+3. Sign in at `/admin` and set up the authenticator app (save the recovery codes). Then **delete the `SEED_ADMIN_PASSWORD` secret**.
+4. Fill in **Settings → Business details, Tax (only with the accountant's real VAT number and rate), Documents and Bank details** on staging.
+5. **Staff walk-through**, done by a staff member with you watching but not helping:
+   1. Sign in, then New sale for the walk-in customer: 2 items, paid in full in cash.
+   2. New sale for a named customer, found or added by phone: 1 item, part payment, then check the balance shows on the customer.
+   3. New quote for a trade customer: Get quote link, open it on a phone, Mark accepted, Record payment, Issue invoice, Print.
+
+   **Done when** they finish all three without help. Note every place they hesitate.
+
+**Open items from earlier phases:** the accountant's approval of the invoice, receipt and credit note layouts (IS-11, IS-12).
 
 ## IS-13 log
 
