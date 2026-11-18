@@ -20,7 +20,29 @@ The approved plan is below the status table and was approved on 2026-11-16. Upda
 | IS-11 | Invoices and receipts | done (PR #12 merged); accountant layout approval pending | `feature/is-11-invoices` | See IS-11 log |
 | IS-12 | Returns and credit notes | done (PR #13 merged) | `feature/is-12-returns` | See IS-12 log |
 | IS-13 | Dashboard and reports | done (PR #14 merged) | `feature/is-13-reports` | See IS-13 log |
-| IS-14 | Hardening and staging deploy | done locally; staging live in Singapore; admin seed and staff walk-through pending | `feature/is-14-hardening` | See IS-14 log |
+| IS-14 | Hardening and staging deploy | done (PR #15 merged); staging live and seeded with demo data; staff walk-through pending | `feature/is-14-hardening` | See IS-14 log and "Staging status" |
+
+**After the plan:** README rewritten (PR #16), demo-data seeder added (PR #17).
+
+## Staging status (18 Nov 2026)
+
+- **URL:** `https://n-pannel-develop-pjrpdb.laravel.cloud/admin`, served by Laravel Cloud app `n-pannel`, environment **Develop**, deployed from branch `Develop` (push-to-deploy).
+- **Running:** commit `17e618a` (PR #17 merge). Asia Pacific (Singapore). Flex 512 MiB, scale to zero, so the first request after idle takes 10–20 s.
+- **Database:** Serverless Postgres 17 (¼ unit, scale to zero), point-in-time recovery, 7 days.
+- **Scheduler:** on, running `store:sweep` hourly and `catalog:prune-imports` daily.
+- **Variables:** `APP_ENV=staging`, `LOG_LEVEL=info`, `SESSION_SECURE_COOKIE=true`, `SESSION_DRIVER/QUEUE_CONNECTION/CACHE_STORE=database`, `SEED_ADMIN_EMAIL`. The `APP_KEY` is Cloud-generated and has never been shared. `SEED_ADMIN_PASSWORD` was set for the first seed.
+- **Seeded (18 Nov, about 23:00 Colombo):**
+  - **Base seed** (`php artisan db:seed --force`): location, districts, categories, the walk-in customer and the admin. No sample catalog.
+  - **Demo data** (`php artisan db:seed --class="Database\Seeders\DemoDataSeeder" --force`): 6 products and 15 variants, 3 suppliers, 4 goods receipts, 11 named customers, 28 orders (22 counter sales, 6 quotes), 5 invoices, 1 return with a credit note, and 1 refused delivery needing attention. DEMO-ANGLE-3000 (4) and DEMO-NAIL-25 (6) are below their reorder level of 8.
+  - **The demo seeder can't run again on this database**, because orders now exist. Its "today" sales are dated 18 Nov.
+- **Still to confirm or do:**
+  - [ ] Admin signed in and set up the authenticator app (recovery codes saved).
+  - [ ] `SEED_ADMIN_PASSWORD` removed from Cloud and the environment redeployed.
+  - [ ] Settings filled in: Business details. Tax only with the accountant's real values. Documents and Bank details.
+  - [ ] Client demo: make one live counter sale first, so the dashboard's Today panel isn't empty.
+  - [ ] Staff walk-through (script in the IS-14 log).
+  - [ ] Accountant's approval of the invoice, receipt and credit note layouts.
+- **Before production:** create a separate production environment rather than reusing staging data. Pick 14–30 days of backup retention and decide on activity-log retention. Move the product import to object storage before running more than one replica.
 
 ## How work is done
 
@@ -65,9 +87,9 @@ Claude orchestrates and Codex implements. Codex's sandbox **cannot run Herd PHP,
 - **The first deploy** (commit 1947ee9, IS-13) migrated cleanly, and `/admin` shows the sign-in page.
 - **A first attempt in US East** (a region set by mistake in onboarding) was deleted and recreated in Singapore while it was empty.
 
-**Still to do after this PR is merged** (staging redeploys from `Develop` automatically):
-1. Create the Cloud secret **`SEED_ADMIN_PASSWORD`** (typed by you) and link it to Develop, then redeploy.
-2. From the environment's **Commands** tab, run once: `php artisan db:seed --class=Database\\Seeders\\DatabaseSeeder --force`. This seeds the location, walk-in customer, districts and the admin; no sample catalog on staging.
+**Still to do after this PR is merged** (staging redeploys from `Develop` automatically). Progress is tracked under "Staging status" at the top:
+1. ~~Create the Cloud secret **`SEED_ADMIN_PASSWORD`** (typed by you) and link it to Develop, then redeploy.~~ Done 18 Nov.
+2. ~~From the environment's **Commands** tab, run once: `php artisan db:seed --force`.~~ Done 18 Nov. The demo data was also seeded.
 3. Sign in at `/admin` and set up the authenticator app (save the recovery codes). Then **delete the `SEED_ADMIN_PASSWORD` secret**.
 4. Fill in **Settings → Business details, Tax (only with the accountant's real VAT number and rate), Documents and Bank details** on staging.
 5. **Staff walk-through**, done by a staff member with you watching but not helping:
