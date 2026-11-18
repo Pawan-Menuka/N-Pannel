@@ -45,15 +45,17 @@ final class BrowserJourney
         $page = visit('/admin/login');
         $page->fill('input[id="form.email"]', $user->email)
             ->fill('input[id="form.password"]', 'password')
-            ->click(self::button('Sign in'))
-            ->assertVisible('input[autocomplete="one-time-code"]');
+            ->click(self::button('Sign in'));
+        $codeInput = 'input[autocomplete="one-time-code"]';
+        $page->page()->locator($codeInput)->waitFor(['state' => 'visible']);
+        $page->assertVisible($codeInput);
 
         $secret = $user->getAppAuthenticationSecret();
         assert(is_string($secret));
         $code = app(Google2FA::class)->getCurrentOtp($secret);
 
         // Filament submits the MFA form automatically after all six digits.
-        $page->fill('input[autocomplete="one-time-code"]', $code)->assertPathIs('/admin');
+        $page->fill($codeInput, $code)->assertPathIs('/admin');
 
         return $page;
     }
@@ -98,6 +100,19 @@ final class BrowserJourney
         return self::modal().' > .fi-modal-footer >> '.self::button($label);
     }
 
+    private function assertUpdatedText(string $text, bool $exact = false): void
+    {
+        $this->page->page()->locator(Selector::getByTextSelector($text, $exact).' >> visible=true')->first()
+            ->waitFor(['state' => 'visible']);
+        $this->page->assertSee($text);
+    }
+
+    private function assertUpdatedValue(string $field, string $value): void
+    {
+        $this->page->page()->locator($field)->waitFor(['state' => 'visible']);
+        $this->page->assertValue($field, $value);
+    }
+
     public function submitModal(string $label): void
     {
         $button = self::modalButton($label);
@@ -108,8 +123,8 @@ final class BrowserJourney
     {
         $this->page->navigate(SupplierResource::getUrl('create'))
             ->fill(self::field('name'), 'Journey Supplier')
-            ->click(self::button('Create'))
-            ->assertSee('Created');
+            ->click(self::button('Create'));
+        $this->assertUpdatedText('Created', exact: true);
 
         $this->page->navigate(GoodsReceiptResource::getUrl('create'));
         $this->pick('supplier_id', 'Journey Supplier');
@@ -118,9 +133,13 @@ final class BrowserJourney
         $this->pick('variant_id', 'JOURNEY-PANEL');
         $this->page->fill(self::field('qty'), '50')->fill(self::field('unit_cost_cents'), '50.00');
         $this->submitModal('Create');
-        $this->page->assertNotPresent(self::modal())->assertSee('JOURNEY-PANEL')->click(self::button('Post'));
+        $this->page->assertNotPresent(self::modal());
+        $this->assertUpdatedText('JOURNEY-PANEL');
+        $this->page->click(self::button('Post'));
         $this->submitModal('Confirm');
-        $this->page->assertNotPresent(self::modal())->assertSee('Goods received posted')->assertSee('GRN-');
+        $this->page->assertNotPresent(self::modal());
+        $this->assertUpdatedText('Goods received posted', exact: true);
+        $this->assertUpdatedText('GRN-');
 
         return GoodsReceipt::query()->sole();
     }
@@ -132,12 +151,12 @@ final class BrowserJourney
             ->assertVisible(self::field('customer_id', 'button'));
         $this->pick('customer_id', $this->customer->name);
         $this->pick('variant_id', 'JOURNEY-PANEL');
-        $this->page->assertValue(self::field('unit_price'), '100.00')
-            ->fill(self::field('qty'), '12')
-            ->assertSee('Total: Rs 1,200.00')
-            ->fill(self::field('payment.amount'), '200.00')
-            ->click(self::button('Complete sale'))
-            ->assertSee('RCP-')->assertSee('Confirmed');
+        $this->assertUpdatedValue(self::field('unit_price'), '100.00');
+        $this->page->fill(self::field('qty'), '12');
+        $this->assertUpdatedText('Total: Rs 1,200.00');
+        $this->page->fill(self::field('payment.amount'), '200.00')->click(self::button('Complete sale'));
+        $this->assertUpdatedText('RCP-');
+        $this->assertUpdatedText('Confirmed', exact: true);
 
         return Order::query()->where('customer_id', $this->customer->id)->sole();
     }
@@ -149,12 +168,14 @@ final class BrowserJourney
         $this->submitModal('Submit');
         $this->page->assertPathContains('/quote')->click(self::button('Add to lines'));
         $this->pick('variant_id', 'JOURNEY-PANEL');
-        $this->page->assertValue(self::field('unit_price'), '80.00')
-            ->fill(self::field('qty'), '30')
-            ->assertSee('Total: Rs 2,400.00')
-            ->fill(self::field('valid_until', 'input[type="date"]'), now('Asia/Colombo')->addDays(7)->toDateString())
-            ->click(self::button('Save'))->assertSee('Quote saved')
-            ->click(self::button('Get quote link'))->assertSee('Quote link');
+        $this->assertUpdatedValue(self::field('unit_price'), '80.00');
+        $this->page->fill(self::field('qty'), '30');
+        $this->assertUpdatedText('Total: Rs 2,400.00');
+        $this->page->fill(self::field('valid_until', 'input[type="date"]'), now('Asia/Colombo')->addDays(7)->toDateString())
+            ->click(self::button('Save'));
+        $this->assertUpdatedText('Quote saved', exact: true);
+        $this->page->click(self::button('Get quote link'));
+        $this->assertUpdatedText('Quote link', exact: true);
         $this->page->assertVisible(self::field('url'));
         $url = $this->page->value(self::field('url'));
         expect($url)->toBeString()->not->toBeEmpty();
@@ -164,7 +185,9 @@ final class BrowserJourney
         $quote = Order::query()->where('customer_id', $this->contractor->id)->sole();
         $this->page->navigate($editUrl)->click(self::button('Mark accepted'));
         $this->submitModal('Submit');
-        $this->page->assertNotPresent(self::modal())->assertSee('Quote '.$quote->reference.' accepted')->assertSee('Confirmed');
+        $this->page->assertNotPresent(self::modal());
+        $this->assertUpdatedText('Quote '.$quote->reference.' accepted', exact: true);
+        $this->assertUpdatedText('Confirmed', exact: true);
 
         return $quote->refresh();
     }
@@ -172,13 +195,17 @@ final class BrowserJourney
     public function invoice(Order $sale): void
     {
         $this->page->navigate(OrderResource::getUrl('view', ['record' => $sale]))
-            ->click(self::button('Record payment'))
-            ->assertValue(self::field('amount'), '1000.00');
+            ->click(self::button('Record payment'));
+        $this->assertUpdatedValue(self::field('amount'), '1000.00');
         $this->submitModal('Submit');
-        $this->page->assertNotPresent(self::modal())->assertSee('Payment recorded')->click(self::button('Issue invoice'));
+        $this->page->assertNotPresent(self::modal());
+        $this->assertUpdatedText('Payment recorded');
+        $this->page->click(self::button('Issue invoice'));
         $this->submitModal('Submit');
-        $this->page->assertSee('Invoice link')->click(self::modalButton('Close'))->assertNotPresent(self::modal())
-            ->click('View invoice')->assertSee('INV-');
+        $this->assertUpdatedText('Invoice link', exact: true);
+        $this->page->click(self::modalButton('Close'))->assertNotPresent(self::modal())
+            ->click('View invoice');
+        $this->assertUpdatedText('INV-');
         $invoice = $sale->refresh()->activeInvoice();
         expect($invoice)->not->toBeNull();
         $this->page->navigate(route('filament.admin.invoices.print', ['invoice' => $invoice]))
@@ -190,16 +217,19 @@ final class BrowserJourney
         $nextNumber = 'CRN-'.now('Asia/Colombo')->year.'-'.str_pad((string) ($sale->salesReturns()->count() + 1), 5, '0', STR_PAD_LEFT);
         $this->page->navigate(OrderResource::getUrl('view', ['record' => $sale]))
             ->click(self::button('Record return'))
-            ->fill(self::field('qty'), '1');
+            ->click(self::toggle('refund'))
+            ->assertVisible(self::field('refund_amount'));
+        $this->assertUpdatedText('Up to Rs 0.00 can be refunded', exact: true);
+        $this->page->fill(self::field('qty'), '1');
+        $this->assertUpdatedText('Up to Rs 100.00 can be refunded', exact: true);
         if (! $restock) {
             $this->page->click(self::toggle('restock'))->assertAttribute(self::toggle('restock'), 'aria-checked', 'false');
         }
         $this->page->fill(self::field('reason', 'textarea'), $restock ? 'Unused panel' : 'Damaged panel')
-            ->click(self::toggle('refund'))
-            ->assertVisible(self::field('refund_amount'))
-            ->assertSee('Up to Rs 100.00 can be refunded')
             ->fill(self::field('refund_amount'), '100.00');
         $this->submitModal('Submit');
-        $this->page->assertNotPresent(self::modal())->assertSee('Return recorded')->assertSee($nextNumber);
+        $this->page->assertNotPresent(self::modal());
+        $this->assertUpdatedText('Return recorded');
+        $this->assertUpdatedText($nextNumber);
     }
 }
