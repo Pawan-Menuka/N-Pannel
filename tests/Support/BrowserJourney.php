@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Variant;
 use Pest\Browser\Api\PendingAwaitablePage;
 use Pest\Browser\Support\Selector;
+use PHPUnit\Framework\ExpectationFailedException;
 use PragmaRX\Google2FAQRCode\Google2FA;
 
 final class BrowserJourney
@@ -43,6 +44,7 @@ final class BrowserJourney
     public static function signIn(User $user): PendingAwaitablePage
     {
         $page = visit('/admin/login');
+        self::waitForPageReady($page);
         $page->fill('input[id="form.email"]', $user->email)
             ->fill('input[id="form.password"]', 'password')
             ->click(self::button('Sign in'));
@@ -56,8 +58,40 @@ final class BrowserJourney
 
         // Filament submits the MFA form automatically after all six digits.
         $page->fill($codeInput, $code)->assertPathIs('/admin');
+        self::waitForPageReady($page);
 
         return $page;
+    }
+
+    private static function waitForPageReady(PendingAwaitablePage $page, bool $filament = true): void
+    {
+        // The plugin's load-state call does not consume the Playwright response.
+        $page->assertScript('document.readyState === "complete"');
+
+        if ($filament) {
+            $page->assertScript(<<<'JS'
+                function () {
+                    return window.Livewire?.initialRenderIsFinished === true
+                        && !document.querySelector('[data-loading]')
+                        && !Array.from(document.querySelectorAll('[wire\\:loading], [wire\\:loading\\.delay]'))
+                            .some(element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden');
+                }
+                JS);
+        }
+    }
+
+    private function navigate(string $url, bool $filament = true): void
+    {
+        $this->page->navigate($url);
+        self::waitForPageReady($this->page, $filament);
+    }
+
+    private function waitAfterRedirect(string $previousUrl): void
+    {
+        $path = parse_url($previousUrl, PHP_URL_PATH);
+        assert(is_string($path));
+        $this->page->assertPathIsNot($path);
+        self::waitForPageReady($this->page);
     }
 
     /** Field ID suffixes survive schema prefixes and repeater UUIDs. */
@@ -78,7 +112,8 @@ final class BrowserJourney
 
     public function pick(string $name, string $search): void
     {
-        $button = self::field($name, 'button[aria-haspopup="listbox"]');
+        $button = self::selectButton($name);
+        $this->page->page()->locator($button)->waitFor(['state' => 'visible']);
         $this->page->assertVisible($button)->click($button)->assertAttribute($button, 'aria-expanded', 'true');
         $dropdown = $this->page->attribute($button, 'aria-controls');
         expect($dropdown)->toBeString()->not->toBeEmpty();
@@ -87,6 +122,35 @@ final class BrowserJourney
             ->click('[id="'.$dropdown.'"] >> '.Selector::getByRoleSelector('option', ['name' => $search]))
             ->assertAttribute($button, 'aria-expanded', 'false')
             ->assertNotPresent('[data-loading]');
+    }
+
+    private static function selectButton(string $name): string
+    {
+        return self::field($name, 'button[aria-haspopup="listbox"]');
+    }
+
+    private function addQuoteLine(): void
+    {
+        $browser = $this->page->page();
+        $rows = $browser->locator('.fi-fo-repeater-items > [x-sortable-item]');
+        $rowCount = $rows->count();
+        $add = self::button('Add to lines');
+        $this->page->click($add);
+
+        try {
+            $browser->locator(self::selectButton('variant_id'))->waitFor(['state' => 'visible', 'timeout' => 2500]);
+        } catch (ExpectationFailedException $exception) {
+            if (! str_contains($exception->getMessage(), 'Timeout 2500ms exceeded')) {
+                throw $exception;
+            }
+
+            self::waitForPageReady($this->page);
+            if ($rows->count() === $rowCount) {
+                $this->page->click($add);
+            }
+
+            $this->page->assertVisible(self::selectButton('variant_id'));
+        }
     }
 
     /** Both modal roles wrap a visible window inside a fixed-position container. */
@@ -121,14 +185,18 @@ final class BrowserJourney
 
     public function receive(): GoodsReceipt
     {
-        $this->page->navigate(SupplierResource::getUrl('create'))
-            ->fill(self::field('name'), 'Journey Supplier')
+        $this->navigate(SupplierResource::getUrl('create'));
+        $createUrl = $this->page->url();
+        $this->page->fill(self::field('name'), 'Journey Supplier')
             ->click(self::button('Create'));
+        $this->waitAfterRedirect($createUrl);
         $this->assertUpdatedText('Created', exact: true);
 
-        $this->page->navigate(GoodsReceiptResource::getUrl('create'));
+        $this->navigate(GoodsReceiptResource::getUrl('create'));
         $this->pick('supplier_id', 'Journey Supplier');
         $this->page->click(self::button('Create'))->assertPathContains('/edit');
+        self::waitForPageReady($this->page);
+        $draftUrl = $this->page->url();
         $this->page->click(self::button('New goods receipt line'));
         $this->pick('variant_id', 'JOURNEY-PANEL');
         $this->page->fill(self::field('qty'), '50')->fill(self::field('unit_cost_cents'), '50.00');
@@ -137,6 +205,7 @@ final class BrowserJourney
         $this->assertUpdatedText('JOURNEY-PANEL');
         $this->page->click(self::button('Post'));
         $this->submitModal('Confirm');
+        $this->waitAfterRedirect($draftUrl);
         $this->page->assertNotPresent(self::modal());
         $this->assertUpdatedText('Goods received posted', exact: true);
         $this->assertUpdatedText('GRN-');
@@ -146,8 +215,12 @@ final class BrowserJourney
 
     public function sell(): Order
     {
-        $this->page->navigate(OrderResource::getUrl('index'))->click('New sale')
-            ->click(self::toggle('walk_in'))
+        $this->navigate(OrderResource::getUrl('index'));
+        $ordersUrl = $this->page->url();
+        $this->page->click('New sale');
+        $this->waitAfterRedirect($ordersUrl);
+        $saleUrl = $this->page->url();
+        $this->page->click(self::toggle('walk_in'))
             ->assertVisible(self::field('customer_id', 'button'));
         $this->pick('customer_id', $this->customer->name);
         $this->pick('variant_id', 'JOURNEY-PANEL');
@@ -155,6 +228,7 @@ final class BrowserJourney
         $this->page->fill(self::field('qty'), '12');
         $this->assertUpdatedText('Total: Rs 1,200.00');
         $this->page->fill(self::field('payment.amount'), '200.00')->click(self::button('Complete sale'));
+        $this->waitAfterRedirect($saleUrl);
         $this->assertUpdatedText('RCP-');
         $this->assertUpdatedText('Confirmed', exact: true);
 
@@ -163,10 +237,13 @@ final class BrowserJourney
 
     public function acceptTradeQuote(): Order
     {
-        $this->page->navigate(OrderResource::getUrl('index'))->click(self::button('New quote'));
+        $this->navigate(OrderResource::getUrl('index'));
+        $this->page->click(self::button('New quote'));
         $this->pick('customer_id', $this->contractor->name);
         $this->submitModal('Submit');
-        $this->page->assertPathContains('/quote')->click(self::button('Add to lines'));
+        $this->page->assertPathContains('/quote');
+        self::waitForPageReady($this->page);
+        $this->addQuoteLine();
         $this->pick('variant_id', 'JOURNEY-PANEL');
         $this->assertUpdatedValue(self::field('unit_price'), '80.00');
         $this->page->fill(self::field('qty'), '30');
@@ -181,10 +258,13 @@ final class BrowserJourney
         expect($url)->toBeString()->not->toBeEmpty();
         $this->page->click(self::modalButton('Close'))->assertNotPresent(self::modal());
         $editUrl = $this->page->url();
-        $this->page->navigate($url)->assertSee($this->contractor->name)->assertSee('JOURNEY-PANEL');
+        $this->navigate($url, filament: false);
+        $this->page->assertSee($this->contractor->name)->assertSee('JOURNEY-PANEL');
         $quote = Order::query()->where('customer_id', $this->contractor->id)->sole();
-        $this->page->navigate($editUrl)->click(self::button('Mark accepted'));
+        $this->navigate($editUrl);
+        $this->page->click(self::button('Mark accepted'));
         $this->submitModal('Submit');
+        $this->waitAfterRedirect($editUrl);
         $this->page->assertNotPresent(self::modal());
         $this->assertUpdatedText('Quote '.$quote->reference.' accepted', exact: true);
         $this->assertUpdatedText('Confirmed', exact: true);
@@ -194,8 +274,9 @@ final class BrowserJourney
 
     public function invoice(Order $sale): void
     {
-        $this->page->navigate(OrderResource::getUrl('view', ['record' => $sale]))
-            ->click(self::button('Record payment'));
+        $this->navigate(OrderResource::getUrl('view', ['record' => $sale]));
+        $orderUrl = $this->page->url();
+        $this->page->click(self::button('Record payment'));
         $this->assertUpdatedValue(self::field('amount'), '1000.00');
         $this->submitModal('Submit');
         $this->page->assertNotPresent(self::modal());
@@ -205,18 +286,19 @@ final class BrowserJourney
         $this->assertUpdatedText('Invoice link', exact: true);
         $this->page->click(self::modalButton('Close'))->assertNotPresent(self::modal())
             ->click('View invoice');
+        $this->waitAfterRedirect($orderUrl);
         $this->assertUpdatedText('INV-');
         $invoice = $sale->refresh()->activeInvoice();
         expect($invoice)->not->toBeNull();
-        $this->page->navigate(route('filament.admin.invoices.print', ['invoice' => $invoice]))
-            ->assertSee($invoice->number)->assertSee('INVOICE')->assertSee('JOURNEY-PANEL');
+        $this->navigate(route('filament.admin.invoices.print', ['invoice' => $invoice]), filament: false);
+        $this->page->assertSee($invoice->number)->assertSee('INVOICE')->assertSee('JOURNEY-PANEL');
     }
 
     public function returnPanel(Order $sale, bool $restock): void
     {
         $nextNumber = 'CRN-'.now('Asia/Colombo')->year.'-'.str_pad((string) ($sale->salesReturns()->count() + 1), 5, '0', STR_PAD_LEFT);
-        $this->page->navigate(OrderResource::getUrl('view', ['record' => $sale]))
-            ->click(self::button('Record return'))
+        $this->navigate(OrderResource::getUrl('view', ['record' => $sale]));
+        $this->page->click(self::button('Record return'))
             ->click(self::toggle('refund'))
             ->assertVisible(self::field('refund_amount'));
         $this->assertUpdatedText('Up to Rs 0.00 can be refunded', exact: true);
