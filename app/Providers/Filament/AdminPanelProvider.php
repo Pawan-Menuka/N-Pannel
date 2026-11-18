@@ -9,6 +9,7 @@ use App\Http\Controllers\AdminInvoiceDocumentController;
 use App\Http\Controllers\AdminQuoteDocumentController;
 use App\Http\Controllers\AdminReceiptDocumentController;
 use App\Http\Middleware\RequireMultiFactorAuthentication;
+use App\Http\Middleware\SecurityHeaders;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -62,6 +63,7 @@ class AdminPanelProvider extends PanelProvider
                 AccountWidget::class,
             ])
             ->middleware([
+                SecurityHeaders::class,
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,

@@ -32,3 +32,5 @@ Thumbs.db
 /.claude/settings.local.json
 /_scaffold/
 /.claude/launch.json
+/tests/Browser/Screenshots/
+/tests/Browser/Traces/

@@ -14,10 +14,10 @@ Artisan::command('catalog:prune-imports', function (PruneCatalogImports $prune):
     $this->info('Deleted '.$prune->handle().' expired catalog import files.');
 })->purpose('Delete catalog import files older than one day');
 
-Schedule::command('catalog:prune-imports')->daily();
+Schedule::command('catalog:prune-imports')->daily()->onOneServer()->withoutOverlapping(60);
 
 Artisan::command('store:sweep', function (SweepExpired $sweep): void {
     $this->info('Expired '.$sweep->handle()->expiredQuotes.' quotes.');
 })->purpose('Expire quotes past their validity date');
 
-Schedule::command('store:sweep')->hourly();
+Schedule::command('store:sweep')->hourly()->onOneServer()->withoutOverlapping(10);

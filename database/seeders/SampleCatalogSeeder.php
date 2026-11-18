@@ -15,7 +15,7 @@ class SampleCatalogSeeder extends Seeder
 {
     public function run(): void
     {
-        if (! app()->environment('local')) {
+        if (! config('seed.sample_catalog')) {
             return;
         }
 

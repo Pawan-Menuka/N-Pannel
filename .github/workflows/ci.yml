@@ -58,4 +58,8 @@ jobs:
           php artisan key:generate
       - run: composer lint
       - run: composer analyse
-      - run: composer test
+      - name: Unit, feature and architecture tests
+        run: composer test
+      - run: npx playwright install --with-deps chromium
+      - name: Browser journey tests
+        run: composer test:browser
